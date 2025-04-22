@@ -15,16 +15,17 @@ import pandas as pd
 import warnings
 import math
 import io
-import smtplib
-# Added necessary email modules
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from email.mime.application import MIMEApplication
+# Removed smtplib and email imports
+# Added csv and datetime imports for logging
+import csv
 from datetime import datetime
-import pytz
+
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+# Define the log file name
+USER_LOG_FILE = 'user_log.csv'
 
 # --- Constants and Setup (Keep as before) ---
 SMALL_EPSILON = 1e-9
@@ -45,7 +46,8 @@ SUBSTRATE_MIN_LAMBDA = {
 # display_log, reset_log, plot_target_only, plot_nk_final,
 # plot_spectra_vs_target, plot_substrate_indices,
 # draw_schema_matplotlib, create_excel_file
-# ... (include the full code for these functions here) ...
+# ... (insert the full code for these functions here) ...
+# (Make sure these functions don't have hidden email dependencies)
 def get_substrate_min_lambda(substrate_name):
     return SUBSTRATE_MIN_LAMBDA.get(substrate_name, 200.0)
 
@@ -416,7 +418,6 @@ def plot_spectra_vs_target(res, target=None, best_params_info=None, model_str_ba
         line_calc = None; calc_l = res.get('l'); calc_y = res.get(calc_value_key)
         if calc_l is not None and calc_y is not None:
             valid_calc_mask = np.isfinite(calc_y) & np.isfinite(calc_l)
-            # Plot calculated line over the full range of the file, not just optimization range
             plot_mask_calc = valid_calc_mask
             if np.any(plot_mask_calc):
                 line_calc, = ax.plot(calc_l[plot_mask_calc], calc_y[plot_mask_calc] * 100.0, label=f'Calc {calc_label_suffix}', linestyle='-', color='darkblue', linewidth=1.5);
@@ -425,21 +426,17 @@ def plot_spectra_vs_target(res, target=None, best_params_info=None, model_str_ba
         if target is not None and 'lambda' in target and target_value_key in target and len(target['lambda']) > 0:
             target_l_valid_orig = target['lambda']; target_y_valid_fraction = target[target_value_key]
             valid_target_mask = np.isfinite(target_y_valid_fraction) & np.isfinite(target_l_valid_orig)
-            # Also plot target over full range
             final_target_mask = valid_target_mask
             if np.any(final_target_mask):
                 target_l_valid = target_l_valid_orig[final_target_mask]; target_y_valid = target_y_valid_fraction[final_target_mask] * 100.0
                 line_tgt, = ax.plot(target_l_valid, target_y_valid, 'o', markersize=4, color='red', fillstyle='none', label=f'Target {target_label_suffix}');
 
         line_delta = None; delta_t_perc = np.full_like(calc_l, np.nan) if calc_l is not None else np.array([])
-        # Calculate delta only where both calc and interpolated target are valid *within the optimization range*
         if calc_l is not None and calc_y is not None and target_l_valid is not None and target_y_valid is not None and len(target_l_valid) > 1:
             calc_y_perc = calc_y * 100.0
-            # Interpolate target across the calc_l range for comparison
             target_y_perc_interp = np.interp(calc_l, target_l_valid, target_y_valid, left=np.nan, right=np.nan)
             delta_t_perc_full = calc_y_perc - target_y_perc_interp
 
-            # Mask for delta plot: only within optimization range and where delta is calculable
             valid_delta_mask = np.isfinite(delta_t_perc_full) & np.isfinite(calc_l)
             plot_mask_delta = (calc_l >= effective_lambda_min) & (calc_l <= effective_lambda_max) & valid_delta_mask
 
@@ -451,7 +448,6 @@ def plot_spectra_vs_target(res, target=None, best_params_info=None, model_str_ba
             else:
                  ax_delta.set_ylabel('ΔT (%) [Optim. Range]', color='green'); ax_delta.tick_params(axis='y', labelcolor='green'); ax_delta.set_yticks([])
 
-        # Set x-axis limits based on the full file range if available
         file_lambda_min = st.session_state.get('lambda_min_file')
         file_lambda_max = st.session_state.get('lambda_max_file')
         if file_lambda_min is not None and file_lambda_max is not None and file_lambda_min < file_lambda_max:
@@ -565,111 +561,47 @@ def create_excel_file(results_data):
     output.seek(0)
     return output.getvalue()
 
-# --- Email Functions ---
+# --- Email Functions Removed ---
 
-def send_email_notification(user_name, user_email):
+# --- Function to Log User Info to CSV ---
+def log_user_access(timestamp, user_name, user_email):
+    file_exists = os.path.isfile(USER_LOG_FILE)
     try:
-        sender_email = st.secrets["email_credentials"]["sender_email"]
-        sender_password = st.secrets["email_credentials"]["sender_password"]
-        recipient_email = "fabien.lemarchand@gmail.com" # Hardcoded recipient for access notification
-        smtp_server = st.secrets["email_credentials"]["smtp_server"]
-        smtp_port = st.secrets["email_credentials"]["smtp_port"]
-
-        timestamp = datetime.now(pytz.timezone("Europe/Paris")).strftime("%Y-%m-%d %H:%M:%S %Z")
-
-        subject = f"Monolayer Optimizer App Usage - {timestamp}"
-        body = f"""
-        A user accessed the Monolayer Optimizer application.
-
-        Timestamp: {timestamp}
-        Name: {user_name if user_name else 'Not provided'}
-        Email: {user_email}
-
-        (This is an automated notification)
-        """
-
-        msg = MIMEText(body)
-        msg['Subject'] = subject
-        msg['From'] = sender_email
-        msg['To'] = recipient_email
-
-        with smtplib.SMTP(smtp_server, smtp_port) as server:
-            server.starttls()
-            server.login(sender_email, sender_password)
-            server.sendmail(sender_email, recipient_email, msg.as_string())
-        add_log_message("info", f"Usage notification sent to {recipient_email} for user {user_email}")
+        with open(USER_LOG_FILE, 'a', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            if not file_exists or os.path.getsize(USER_LOG_FILE) == 0:
+                writer.writerow(['Timestamp', 'Name', 'Email'])
+            writer.writerow([timestamp, user_name, user_email])
         return True
-    except KeyError as e:
-        add_log_message("error", f"Email credentials missing in secrets.toml: {e}. Cannot send email.")
-        st.error("Email notification configuration is incomplete for sender. Please check secrets.", icon="🚨")
-        return False
     except Exception as e:
-        add_log_message("error", f"Failed to send email notification: {e}")
-        st.error(f"Failed to send notification email: {e}", icon="🚨")
+        add_log_message("error", f"Failed to write to user log file {USER_LOG_FILE}: {e}")
         return False
 
-# New function to email results with attachment
-def send_results_email(excel_bytes, excel_filename):
-    user_recipient_email = st.session_state.get('user_email')
-    if not user_recipient_email:
-        add_log_message("error", "Attempted to send results email, but user email is missing from session state.")
-        st.error("User email not found. Cannot send results.", icon="🚨")
-        return False
+# --- Function to Display User Log ---
+def display_user_log():
+    st.subheader("User Access Log")
+    if os.path.isfile(USER_LOG_FILE):
+        try:
+            df_log = pd.read_csv(USER_LOG_FILE)
+            st.metric("Total Access Records", len(df_log))
+            st.dataframe(df_log)
+        except Exception as e:
+            st.error(f"Could not read user log file {USER_LOG_FILE}: {e}")
+            add_log_message("error", f"Failed to read user log file: {e}")
+    else:
+        st.info("User log file not found or is empty.")
 
-    try:
-        sender_email = st.secrets["email_credentials"]["sender_email"]
-        sender_password = st.secrets["email_credentials"]["sender_password"]
-        cc_email = "fabien.lemarchand@gmail.com" # Hardcoded CC recipient
-        smtp_server = st.secrets["email_credentials"]["smtp_server"]
-        smtp_port = st.secrets["email_credentials"]["smtp_port"]
 
-        msg = MIMEMultipart()
-        msg['Subject'] = f"Monolayer Optimizer Results - {excel_filename}"
-        msg['From'] = sender_email
-        msg['To'] = user_recipient_email
-        msg['Cc'] = cc_email
-
-        body = f"""
-        Please find attached the results from the Monolayer Optimizer application.
-
-        Filename: {excel_filename}
-        Requested by: {user_recipient_email}
-
-        (This is an automated message)
-        """
-        msg.attach(MIMEText(body, 'plain'))
-
-        part = MIMEApplication(excel_bytes, Name=excel_filename)
-        part['Content-Disposition'] = f'attachment; filename="{excel_filename}"'
-        msg.attach(part)
-
-        all_recipients = [user_recipient_email] + [cc_email]
-
-        with smtplib.SMTP(smtp_server, smtp_port) as server:
-            server.starttls()
-            server.login(sender_email, sender_password)
-            server.sendmail(sender_email, all_recipients, msg.as_string())
-
-        add_log_message("info", f"Results email sent successfully to {user_recipient_email} (CC: {cc_email})")
-        return True
-    except KeyError as e:
-        add_log_message("error", f"Email credentials missing in secrets.toml: {e}. Cannot send results email.")
-        st.error("Email notification configuration is incomplete for sender. Cannot send results. Please check secrets.", icon="🚨")
-        return False
-    except Exception as e:
-        add_log_message("error", f"Failed to send results email: {e}")
-        st.error(f"Failed to send results email: {e}", icon="🚨")
-        return False
-
-# --- Initialize Session State (Keep as before, maybe add excel_bytes/filename defaults) ---
+# --- Initialize Session State (Keep as before) ---
 if 'target_data' not in st.session_state: st.session_state.target_data = None
 if 'target_filename_base' not in st.session_state: st.session_state.target_filename_base = None
 if 'lambda_min_file' not in st.session_state: st.session_state.lambda_min_file = None
 if 'lambda_max_file' not in st.session_state: st.session_state.lambda_max_file = None
 if 'log_messages' not in st.session_state: st.session_state.log_messages = []
 if 'optim_results' not in st.session_state: st.session_state.optim_results = None
-if 'excel_bytes' not in st.session_state: st.session_state.excel_bytes = None # Ensure initialized
-if 'excel_filename' not in st.session_state: st.session_state.excel_filename = "results.xlsx" # Ensure initialized
+# Remove excel state as it's no longer downloaded or emailed
+if 'excel_bytes' in st.session_state: del st.session_state['excel_bytes']
+if 'excel_filename' in st.session_state: del st.session_state['excel_filename']
 if 'config_lambda_min' not in st.session_state: st.session_state.config_lambda_min = "---"
 if 'config_lambda_max' not in st.session_state: st.session_state.config_lambda_max = "---"
 if 'thickness_min' not in st.session_state: st.session_state.thickness_min = 300.0
@@ -683,7 +615,7 @@ if 'info_submitted' not in st.session_state:
 if 'user_name' not in st.session_state:
     st.session_state.user_name = ""
 if 'user_email' not in st.session_state:
-    st.session_state.user_email = "" # Ensure initialized
+    st.session_state.user_email = ""
 
 default_advanced_params = {
     'num_knots_n': 6, 'num_knots_k': 6, 'use_inv_lambda_sq_distrib': False,
@@ -697,11 +629,11 @@ if 'advanced_optim_params' not in st.session_state:
 # --- Streamlit App Layout ---
 st.set_page_config(page_title="Monolayer Optimizer", layout="wide")
 
-# --- User Info Form (Keep as before) ---
+# --- User Info Form (Modified to log access) ---
 if not st.session_state.info_submitted:
     st.header("Welcome!")
     st.write("Please enter your name or your e-mail to continue.")
-    st.info("Privacy Notice: Your email is collected to track application usage and potentially receive results if requested. It will not be shared otherwise.", icon="ℹ️")
+    st.info("Privacy Notice: Your details are logged for usage tracking when you access the application.", icon="ℹ️") # Updated notice
 
     with st.form("info_form"):
         name_input = st.text_input("Your name (optional)")
@@ -715,21 +647,26 @@ if not st.session_state.info_submitted:
                 st.session_state.user_email = email_input
                 st.session_state.info_submitted = True
 
-                email_sent_successfully = send_email_notification(name_input, email_input)
+                # --- Log user access to file ---
+                now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                log_success = log_user_access(now_str, name_input, email_input)
+                if log_success:
+                     add_log_message("info", f"User access logged: {email_input}")
+                # --- End log access ---
 
+                # Removed email sending call
                 st.rerun()
             else:
                 st.error("Please provide at least an email address.")
 
 # --- Main Application UI ---
 else:
-    # Welcome message
-    user_display_name = st.session_state.user_name or st.session_state.user_email # Use email if name is blank
+    user_display_name = st.session_state.user_name or st.session_state.user_email
     st.success(f"Welcome, {user_display_name}!")
 
     st.title("Monolayer Optical Properties Optimizer")
 
-    # App Description (Keep as before)
+    # App Description (Keep as before, maybe update last sentence)
     with st.expander("📄 Application Description", expanded=False):
         st.markdown(r"""
         This Streamlit application determines the optical properties (refractive index $n(\lambda)$, extinction coefficient $k(\lambda)$) and the physical thickness ($d$) of a single thin layer (monolayer) deposited on a known substrate.
@@ -737,14 +674,14 @@ else:
         The determination is achieved by fitting calculated optical transmission spectra (either normalized transmission $T_{norm}$ or direct sample transmission $T_{sample}$) to experimental target data provided by the user via a CSV file (or a default example file).
         The application uses cubic splines to model the dispersion of $n(\lambda)$ and $k(\lambda)$, and employs the differential evolution algorithm to find the optimal parameters (spline knot values and thickness $d$) that minimize the mean squared error between the calculated spectrum and the experimental target within a user-defined wavelength range, while respecting the physical limitations of the chosen substrate.
 
-        The tool outputs the determined dispersions of $n(\lambda)$ and $k(\lambda)$, the optimal thickness $d$, comparison plots, an assessment of the fit quality, and allows emailing detailed results to the user (with admin CC).
+        The tool outputs the determined dispersions of $n(\lambda)$ and $k(\lambda)$, the optimal thickness $d$, comparison plots, and an assessment of the fit quality. User access is logged.
 
         ---
         *Developed by Fabien Lemarchand.*
         *For any questions, feedback, or potential collaborations, please contact:* [fabien.lemarchand@gmail.com](mailto:fabien.lemarchand@gmail.com)
-        """) # Updated description slightly
+        """)
 
-    # Sidebar Configuration (Keep as before, ensure Sapphire coefficients are correct if used)
+    # Sidebar Configuration (Keep as before)
     with st.sidebar:
         st.header("Configuration")
         prev_substrate = st.session_state.substrate_choice
@@ -869,7 +806,7 @@ else:
                 add_log_message("info", f"User uploaded file: {source_name}")
                 reset_log()
                 st.session_state.optim_results = None
-                st.session_state.excel_bytes = None
+                # st.session_state.excel_bytes = None # Removed
         elif st.session_state.target_data is None:
             add_log_message("info", f"No file uploaded. Attempting to load default: {default_file_path}")
             if os.path.exists(default_file_path):
@@ -880,13 +817,14 @@ else:
                     is_default_file = True
                     reset_log()
                     st.session_state.optim_results = None
-                    st.session_state.excel_bytes = None
+                    # st.session_state.excel_bytes = None # Removed
             else:
                 if st.session_state.last_loaded_source != "DEFAULT_NOT_FOUND":
                     add_log_message("error", f"Default file '{default_file_path}' not found. Please upload a file.")
                     st.warning(f"Default file '{default_file_path}' not found. Please upload a file.", icon="⚠️")
                     st.session_state.last_loaded_source = "DEFAULT_NOT_FOUND"
 
+        # File parsing logic (Keep as before)
         if data_source_to_load is not None:
             st.session_state.target_data = None
             try:
@@ -1041,12 +979,13 @@ else:
                 st.session_state.fig_substrate_plot = None;
                 st.rerun()
 
-    # --- Optimization Execution Logic ---
+    # --- Optimization Execution Logic (Modified to remove Excel generation) ---
     if run_button:
-        reset_log(); st.session_state.optim_results = None; st.session_state.excel_bytes = None
+        reset_log(); st.session_state.optim_results = None # Removed excel_bytes reset
         add_log_message("info", "="*20 + " Starting Optimization " + "="*20)
         valid_params = True
         try:
+            # Parameter validation (Keep as before)
             thickness_min = float(st.session_state.thickness_min); thickness_max = float(st.session_state.thickness_max)
             if thickness_min > thickness_max or thickness_min < 0: raise ValueError("Invalid Monolayer Thickness bounds (Min >= 0, Min <= Max).")
 
@@ -1075,6 +1014,7 @@ else:
         except Exception as e_unexpected: st.error(f"Setup Error: An unexpected error occurred during setup:\n{e_unexpected}", icon="🚨"); add_log_message("error", f"Unexpected Setup Error: {e_unexpected}"); valid_params = False
 
         if valid_params:
+            # Setup before optimization (Keep as before)
             add_log_message("info", f"Starting optimization: Target={current_target_type}, Substrate={selected_substrate}")
             add_log_message("info", f"Thickness Range: [{thickness_min:.1f}, {thickness_max:.1f}] nm"); add_log_message("info", f"Advanced parameters: {adv_params}")
 
@@ -1089,10 +1029,12 @@ else:
             if not np.any(mask_used_in_optimization):
                 st.error(f"No valid target data points found within the specified lambda range [{effective_lambda_min:.1f}, {effective_lambda_max:.1f}] nm with a valid substrate index.", icon="🚨"); add_log_message("error", "No valid points for optimization in the specified range.")
             else:
+                # Optimization data prep (Keep as before)
                 target_lambda_opt = current_target_lambda[mask_used_in_optimization]; target_value_opt = current_target_value[mask_used_in_optimization]; nSub_target_array_opt = nSub_target_array_full[mask_used_in_optimization]
                 weights_array = np.ones_like(target_lambda_opt);
                 add_log_message("info", f"Using {len(target_lambda_opt)} target points for optimization.")
 
+                # Knot calculation (Keep as before)
                 fixed_n_knot_lambdas = np.array([], dtype=float); fixed_k_knot_lambdas = np.array([], dtype=float); knot_lam_min = effective_lambda_min; knot_lam_max = effective_lambda_max
                 try:
                     if use_inv_lambda_sq_distrib:
@@ -1113,7 +1055,9 @@ else:
 
                 except Exception as e_knot: st.error(f"Knot Error: Error calculating knot positions for range [{knot_lam_min:.1f}, {knot_lam_max:.1f}] nm:\n{e_knot}", icon="🚨"); add_log_message("error", f"Knot calculation error: {e_knot}"); valid_params = False
 
+
                 if valid_params:
+                    # Optimization run (Keep as before)
                     parameter_bounds = [(thickness_min, thickness_max)] + [N_KNOT_VALUE_BOUNDS] * num_knots_n + [LOG_K_KNOT_VALUE_BOUNDS] * num_knots_k
                     fixed_args = (num_knots_n, num_knots_k, target_lambda_opt, nSub_target_array_opt, target_value_opt, weights_array, target_type_flag, fixed_n_knot_lambdas, fixed_k_knot_lambdas)
 
@@ -1131,32 +1075,17 @@ else:
                                 if not np.isfinite(current_fun): current_fun = np.inf
                                 if current_fun < optim_callback_best_mse[0]:
                                     optim_callback_best_mse[0] = current_fun; is_best = True
-
                                 mse_val = optim_callback_best_mse[0]
                                 status_text.info(f"Iteration: {optim_iteration_count[0]} | Best MSE: {mse_val:.4e}", icon="⏳")
-                                # Log less frequently to avoid clutter
-                                # if is_best: add_log_message("info", f"Iter: {optim_iteration_count[0]}, New Best MSE: {mse_val:.4e}")
-                                # else: add_log_message("info", f"Iter: {optim_iteration_count[0]}, Current MSE: {current_fun:.4e}, Best MSE: {mse_val:.4e}")
                             except Exception as e_cb:
                                 add_log_message("warning", f"Error in callback at iter {optim_iteration_count[0]}: {e_cb}")
 
-
                     de_args = {
-                        'func': objective_func_spline_fixed_knots,
-                        'bounds': parameter_bounds,
-                        'args': fixed_args,
-                        'strategy': adv_params['strategy'],
-                        'maxiter': adv_params['maxiter'],
-                        'popsize': adv_params['pop_size'],
-                        'tol': adv_params['tol'],
-                        'atol': adv_params['atol'],
-                        'mutation': (adv_params['mutation_min'], adv_params['mutation_max']),
-                        'recombination': adv_params['recombination'],
-                        'polish': adv_params['polish'],
-                        'updating': adv_params['updating'],
-                        'workers': adv_params['workers'],
-                        'disp': False,
-                        'callback': optimization_callback_simple_log
+                        'func': objective_func_spline_fixed_knots, 'bounds': parameter_bounds, 'args': fixed_args,
+                        'strategy': adv_params['strategy'], 'maxiter': adv_params['maxiter'], 'popsize': adv_params['pop_size'],
+                        'tol': adv_params['tol'], 'atol': adv_params['atol'], 'mutation': (adv_params['mutation_min'], adv_params['mutation_max']),
+                        'recombination': adv_params['recombination'], 'polish': adv_params['polish'], 'updating': adv_params['updating'],
+                        'workers': adv_params['workers'], 'disp': False, 'callback': optimization_callback_simple_log
                        }
 
                     try:
@@ -1166,10 +1095,10 @@ else:
 
                         if not optim_result.success: add_log_message("warning", f"Main optimization did not converge successfully: {optim_result.message}"); st.warning(f"Optimization warning: {optim_result.message}", icon="⚠️")
 
+                        # Post-optimization processing (Keep calculation, remove Excel specific prep)
                         add_log_message("info", "-" * 50); add_log_message("info", f"Best result from optimization:");
                         p_optimal = optim_result.x; final_objective_value = optim_result.fun; final_mse_display = final_objective_value if np.isfinite(final_objective_value) and final_objective_value < HUGE_PENALTY else np.nan
                         add_log_message("info", f"  Optimal MSE (Objective Func): {final_mse_display:.4e}")
-
                         optimal_thickness_nm = p_optimal[0]; add_log_message("info", f"  Optimal Monolayer Thickness: {optimal_thickness_nm:.3f} nm");
 
                         idx_start = 1; n_values_opt_final = p_optimal[idx_start : idx_start + num_knots_n]; idx_start += num_knots_n; log_k_values_opt_final = p_optimal[idx_start : idx_start + num_knots_k]
@@ -1183,7 +1112,6 @@ else:
                         if np.any(valid_lambda_mask_for_calc):
                             n_final_array_recalc[valid_lambda_mask_for_calc] = n_spline_final(current_target_lambda[valid_lambda_mask_for_calc]);
                             k_final_array_recalc[valid_lambda_mask_for_calc] = np.exp(log_k_spline_final(current_target_lambda[valid_lambda_mask_for_calc]))
-
                             n_final_array_recalc = np.clip(n_final_array_recalc, 1.0, N_KNOT_VALUE_BOUNDS[1]);
                             k_final_array_recalc = np.clip(k_final_array_recalc, 0.0, math.exp(LOG_K_KNOT_VALUE_BOUNDS[1]))
                             n_final_array_recalc[~np.isfinite(n_final_array_recalc)] = np.nan; k_final_array_recalc[~np.isfinite(k_final_array_recalc)] = np.nan
@@ -1203,57 +1131,43 @@ else:
                                 if np.isfinite(T_norm_calc): T_norm_final_calc[i] = np.clip(T_norm_calc, 0.0, 2.0)
                             except Exception: pass
 
+                        # MSE and Quality calculation (Keep as before)
                         calc_value_for_mse = T_norm_final_calc if current_target_type == 'T_norm' else T_stack_final_calc;
                         valid_calc_mask_recalc = np.isfinite(calc_value_for_mse)
                         combined_valid_mask_for_mse = mask_used_in_optimization & valid_calc_mask_recalc;
                         recalc_mse_final = np.nan; percent_good_fit = np.nan; quality_label = "N/A"; mse_pts_count = np.sum(combined_valid_mask_for_mse)
-
                         if mse_pts_count > 0 :
                             recalc_mse_final = np.mean((calc_value_for_mse[combined_valid_mask_for_mse] - current_target_value[combined_valid_mask_for_mse])**2);
                             abs_delta = np.abs(calc_value_for_mse[combined_valid_mask_for_mse] - current_target_value[combined_valid_mask_for_mse]); delta_threshold = 0.0025
                             points_below_threshold = np.sum(abs_delta < delta_threshold);
                             percent_good_fit = (points_below_threshold / mse_pts_count) * 100.0
-
                             if percent_good_fit >= 90: quality_label = "Excellent";
                             elif percent_good_fit >= 70: quality_label = "Good";
                             elif percent_good_fit >= 50: quality_label = "Fair";
                             else: quality_label = "Poor"
-
                             add_log_message("info", f"  Final MSE ({current_target_type}, {mse_pts_count} pts in range): {recalc_mse_final:.4e}"); add_log_message("info", "-"*20 + " Fit Quality " + "-"*20)
                             add_log_message("info", f"  Range [{effective_lambda_min:.1f}-{effective_lambda_max:.1f}] nm, {mse_pts_count} valid pts"); add_log_message("info", f"  Points with |delta| < {delta_threshold*100:.2f}% : {percent_good_fit:.1f}% ({points_below_threshold}/{mse_pts_count})"); add_log_message("info", f"  -> Rating: {quality_label}")
                         else:
                             add_log_message("warning", f"Cannot recalculate Final MSE or Fit Quality for range [{effective_lambda_min:.1f}-{effective_lambda_max:.1f}] nm. No valid points found after recalculation.")
                         add_log_message("info", "-" * 50)
 
+                        # Store results in session state (Remove Excel-specific keys)
                         plot_lambda_array_final = np.linspace(effective_lambda_min, effective_lambda_max, 500)
                         st.session_state.optim_results = {
-                            'final_spectra': {
-                                'l': current_target_lambda,
-                                'T_stack_calc': T_stack_final_calc,
-                                'T_norm_calc': T_norm_final_calc,
-                                'MSE_Optimized': final_mse_display,
-                                'MSE_Recalculated': recalc_mse_final,
-                                'percent_good_fit': percent_good_fit,
-                                'quality_label': quality_label
-                            },
-                            'target_filtered_for_plot': {
-                                'lambda': current_target_lambda[mask_used_in_optimization],
-                                'target_value': current_target_value[mask_used_in_optimization],
-                                'target_type': current_target_type
-                            },
-                            'best_params': {
-                                'thickness_nm': optimal_thickness_nm,
-                                'num_knots_n': num_knots_n, 'num_knots_k': num_knots_k,
-                                'n_knot_values': n_values_opt_final, 'log_k_knot_values': log_k_values_opt_final,
-                                'n_knot_lambdas': fixed_n_knot_lambdas, 'k_knot_lambdas': fixed_k_knot_lambdas,
-                                'knot_distribution': "1/λ²" if use_inv_lambda_sq_distrib else "1/λ",
-                                'substrate_name': selected_substrate,
-                                'effective_lambda_min': effective_lambda_min,
-                                'effective_lambda_max': effective_lambda_max
-                            },
+                            'final_spectra': { 'l': current_target_lambda, 'T_stack_calc': T_stack_final_calc, 'T_norm_calc': T_norm_final_calc,
+                                               'MSE_Optimized': final_mse_display, 'MSE_Recalculated': recalc_mse_final,
+                                               'percent_good_fit': percent_good_fit, 'quality_label': quality_label },
+                            'target_filtered_for_plot': { 'lambda': current_target_lambda[mask_used_in_optimization], 'target_value': current_target_value[mask_used_in_optimization],
+                                                         'target_type': current_target_type },
+                            'best_params': { 'thickness_nm': optimal_thickness_nm, 'num_knots_n': num_knots_n, 'num_knots_k': num_knots_k,
+                                             'n_knot_values': n_values_opt_final, 'log_k_knot_values': log_k_values_opt_final,
+                                             'n_knot_lambdas': fixed_n_knot_lambdas, 'k_knot_lambdas': fixed_k_knot_lambdas,
+                                             'knot_distribution': "1/λ²" if use_inv_lambda_sq_distrib else "1/λ", 'substrate_name': selected_substrate,
+                                             'effective_lambda_min': effective_lambda_min, 'effective_lambda_max': effective_lambda_max },
                             'plot_lambda_array': plot_lambda_array_final,
                             'model_str_base': "Spline Fit",
-                            'excel_export_data': {
+                            # Keep data for table display if needed, remove excel specific dicts
+                            'result_data_table': {
                                 'lambda (nm)': current_target_lambda,
                                 f'n (Spline Fit ({num_knots_n}n{num_knots_k}k))': n_final_array_recalc,
                                 f'k (Spline Fit ({num_knots_n}n{num_knots_k}k))': k_final_array_recalc,
@@ -1265,50 +1179,19 @@ else:
                                 'Calc T Norm (%)': T_norm_final_calc * 100.0,
                                 'Delta T (%)': (T_stack_final_calc - current_target_value)*100.0 if current_target_type == 'T' else np.nan,
                                 'Delta T Norm (%)': (T_norm_final_calc - current_target_value)*100.0 if current_target_type == 'T_norm' else np.nan,
-                            },
-                            'excel_summary_params': [
-                                ('Model', f"Spline Fit ({'1/λ²' if use_inv_lambda_sq_distrib else '1/λ'})"),
-                                ('Target Used', current_target_type),
-                                ('Target File', st.session_state.target_filename_base),
-                                ('Substrate', selected_substrate),
-                                ('Optimization Lambda Range (nm)', f"[{effective_lambda_min:.1f}, {effective_lambda_max:.1f}]"),
-                                ('n Knots', num_knots_n), ('k Knots', num_knots_k),
-                                ('Thickness (nm)', f"{optimal_thickness_nm:.3f}"),
-                                ('Optim. MSE (Objective)', f"{final_mse_display:.4e}" if np.isfinite(final_mse_display) else "N/A"),
-                                ('Final MSE (Recalc. in Range)', f"{recalc_mse_final:.4e}" if np.isfinite(recalc_mse_final) else "N/A"),
-                                ('Fit Rating (in Range)', quality_label),
-                                ('Pts in Range (|delta|<0.25%)', f"{percent_good_fit:.1f}%" if np.isfinite(percent_good_fit) else "N/A"),
-                            ]
+                             }
                            }
 
-                        try:
-                            excel_data_prep = {
-                                'summary': pd.DataFrame(st.session_state.optim_results['excel_summary_params'], columns=['Parameter', 'Value']),
-                                'data': pd.DataFrame(st.session_state.optim_results['excel_export_data']),
-                                'sheet_name': f"Results_{selected_substrate[:10]}"
-                            }
-                            df_res = excel_data_prep['data']; float_format = "%.5f"
-                            for col in df_res.select_dtypes(include=['float']).columns:
-                                if col == 'lambda (nm)': df_res[col] = df_res[col].apply(lambda x: "%.2f" % x if pd.notna(x) else '')
-                                elif col == 'Thickness (nm)': df_res[col] = df_res[col].apply(lambda x: "%.3f" % x if pd.notna(x) else '')
-                                elif 'Target' in col or 'Calc T' in col or 'Delta T' in col: df_res[col] = df_res[col].apply(lambda x: "%.2f" % x if pd.notna(x) else '')
-                                else: df_res[col] = df_res[col].apply(lambda x: float_format % x if pd.notna(x) else '')
-
-                            excel_data_prep['data'] = df_res
-                            st.session_state.excel_bytes = create_excel_file(excel_data_prep)
-
-                            knot_distrib_str_short = "1L2" if use_inv_lambda_sq_distrib else "1L"
-                            safe_target_filename = "".join(c if c.isalnum() else "_" for c in st.session_state.target_filename_base.split('.')[0])[:20]
-                            st.session_state.excel_filename = f"results_{safe_target_filename}_{num_knots_n}n{num_knots_k}k_{knot_distrib_str_short}_{current_target_type}_{selected_substrate.replace(' ','_')}_L{effective_lambda_min:.0f}-{effective_lambda_max:.0f}.xlsx"
-                            add_log_message("info", f"Excel data generated for emailing as '{st.session_state.excel_filename}'.")
-                        except Exception as e_excel: add_log_message("error", f"Failed to generate Excel data in memory: {e_excel}"); st.error(f"Failed to generate Excel data: {e_excel}", icon="🚨"); st.session_state.excel_bytes = None
+                        # Removed Excel file generation block
 
                     except Exception as e_optim: st.error(f"Optimization Error: An error occurred during optimization:\n{e_optim}", icon="🚨"); add_log_message("error", f"ERROR during optimization: {e_optim}"); traceback.print_exc()
 
-    # --- Results Display ---
+
+    # --- Results Display (Modified to remove Email/Download button) ---
     if st.session_state.optim_results:
         results = st.session_state.optim_results
         st.divider(); st.header("Optimization Results")
+        # Display metrics (Keep as before)
         col_res1a, col_res2a = st.columns(2)
         with col_res1a: st.metric("Optimal Thickness", f"{results['best_params']['thickness_nm']:.3f} nm")
         with col_res2a:
@@ -1322,14 +1205,12 @@ else:
         else:
             st.metric("Fit Quality Rating (in range)", "N/A")
 
+
         st.subheader("Result Plots")
-        # Plotting functions (Keep calls as before)
+        # Plotting (Keep as before)
         fig_compare = plot_spectra_vs_target(
-            res=results['final_spectra'],
-            target=st.session_state.target_data,
-            best_params_info=results['best_params'],
-            model_str_base=results['model_str_base'],
-            effective_lambda_min=results['best_params']['effective_lambda_min'],
+            res=results['final_spectra'], target=st.session_state.target_data, best_params_info=results['best_params'],
+            model_str_base=results['model_str_base'], effective_lambda_min=results['best_params']['effective_lambda_min'],
             effective_lambda_max=results['best_params']['effective_lambda_max']
         )
         if fig_compare: st.pyplot(fig_compare)
@@ -1339,37 +1220,27 @@ else:
 
 
         st.subheader("Result Data")
-        # --- Modified Section: Replace Download with Email Button ---
-        if st.session_state.excel_bytes:
-            user_email_addr = st.session_state.get('user_email')
-            if user_email_addr:
-                button_label = f"✉️ Email Results to Me ({user_email_addr}) (CC Admin)"
-                if st.button(button_label, use_container_width=True):
-                    with st.spinner("Sending email..."):
-                        success = send_results_email(
-                            st.session_state.excel_bytes,
-                            st.session_state.excel_filename
-                        )
-                    if success:
-                        st.toast(f"Results email sent successfully to {user_email_addr}!", icon="✅")
-                    else:
-                        st.toast("Failed to send results email.", icon="🚨") # Specific error logged/shown by function
-            else:
-                 st.warning("User email not found in session. Cannot email results.")
-
-        else:
-            st.info("Optimization results need to be generated before they can be emailed.")
-        # --- End of Modified Section ---
-
+        # --- Removed Email/Download Button ---
         with st.expander("Show Result Data Table (Full Range)"):
-            if 'excel_export_data' in results:
-                st.dataframe(pd.DataFrame(results['excel_export_data']).set_index('lambda (nm)'))
-            else: st.warning("Result data not available for display.")
+             # Use the stored data table dictionary
+            if 'result_data_table' in results:
+                 try:
+                     df_display = pd.DataFrame(results['result_data_table']).set_index('lambda (nm)')
+                     # Optional: Apply formatting for display if desired
+                     st.dataframe(df_display.style.format("{:.3f}", na_rep='-')) # Example format
+                 except Exception as e_df:
+                     st.warning(f"Could not display result table: {e_df}")
+            else:
+                 st.warning("Result data table not available for display.")
+
+    # --- Display User Log Section ---
+    with st.expander("Show User Access Log"):
+        display_user_log()
 
     # --- Log Display (Keep as before) ---
     display_log()
 
-    # --- Help Text (Keep as before) ---
+    # --- Help Text (Removed Email info) ---
     help_text_en = """
     User Manual - Optical Monolayer Optimizer (Streamlit Version)
 
@@ -1378,61 +1249,43 @@ else:
 
     Main Steps:
 
-    1.  **Provide Your Email:** Enter your email address (and optionally name) on the initial screen. This email is used for usage tracking and to receive results if you request them later.
+    1.  **Provide Your Email:** Enter your email address (and optionally name) on the initial screen. This email is logged for usage tracking.
     2.  **Configure Settings (Sidebar):**
-        * **Substrate Material:** Choose the substrate from the dropdown. This affects the refractive index used in calculations and sets a minimum valid wavelength.
-        * **Optimization Lambda Range:** Define the Min/Max wavelength (nm) for the optimization. This range must be within the range of your loaded file AND above the substrate's minimum valid wavelength. Values are automatically suggested after loading a file but can be adjusted. Check sidebar warnings.
-        * **Advanced Optimization Settings (Optional):** Expand this section to fine-tune spline parameters (knots) and Differential Evolution algorithm settings (for advanced users). Defaults are usually reasonable.
-        * **Reset Parameters:** Click this button in the sidebar to reset Lambda Range, Thickness Range, and Advanced Optimization settings to their defaults.
+        * **Substrate Material:** Choose the substrate.
+        * **Optimization Lambda Range:** Define the Min/Max wavelength (nm).
+        * **Advanced Optimization Settings (Optional):** Fine-tune parameters.
+        * **Reset Parameters:** Reset settings to default.
 
     3.  **Select Target Type (Main Area):**
-        * Choose whether your target data represents "Normalized Transmission" (T Norm (%)) or "Sample Transmission" (T Sample (%)).
-        * *T Norm (%)* = (Transmission of the sample with layer) / (Transmission of the bare substrate) * 100
-        * *T Sample (%)* = Transmission of the sample with layer * 100
-        * The schema diagram updates to reflect the selected measurement configuration.
+        * Choose "Normalized Transmission" (T Norm (%)) or "Sample Transmission" (T Sample (%)).
 
     4.  **Load Target File (Main Area):**
-        * Click "Browse files" and select a **.csv** file containing your experimental data.
-        * **Alternatively:** If no file is selected, the application will attempt to load a default file named `example.csv` if it exists in the same directory as the script.
-        * **CSV Expected Format:**
-            * First Line: Header (ignored). Data starts on the second line.
-            * Columns: Column 1: Wavelength λ (nm), Column 2: Target value (T Norm or T Sample).
-            * **Separators/Encoding:** The app attempts to automatically detect common formats (comma/semicolon/tab delimiters, period/comma decimals, UTF-8/Latin-1 encoding). Ensure your data is numeric.
-        * Target values can be percentage (e.g., 95.5) or fraction (e.g., 0.955). The program attempts to detect this automatically (values > 5 are assumed to be %).
-        * A plot of the loaded data (target vs. λ) appears after successful loading.
-        * The filename, its valid wavelength range, and suggested optimization range in the sidebar are updated. Check the Log Messages expander at the bottom for details on loading.
+        * Upload a **.csv** file or use the default `example.csv`.
+        * **CSV Format:** Header ignored, Col 1: λ (nm), Col 2: Target value.
+        * Values detected as % or fraction (0-1). Plot appears on load.
 
     5.  **Configure Thickness Range (Main Area):**
-        * Define the **Min/Max Thick (nm)** range for the monolayer thickness search. Ensure Min < Max.
+        * Define **Min/Max Thick (nm)**.
 
     6.  **Run Optimization (Main Area):**
-        * Click the "▶ Run Optimization" button (enabled only after data is loaded).
-        * A spinner indicates the process is running. Progress messages (Iteration/MSE) may appear below the button.
-        * The Log Messages section at the bottom provides detailed information about the optimization steps.
-        * This step performs the search for the best n(λ), k(λ), and thickness 'd' matching the target data within the specified range.
+        * Click "▶ Run Optimization".
 
-    7.  **Analyze Results (Main Area - appears after optimization):**
-        * **Metrics:** Optimal Thickness, Final Mean Squared Error (MSE) within the optimization range, and a Fit Quality Rating (Excellent/Good/Fair/Poor based on points close to the target) are displayed.
-        * **Result Plots:**
-            * *Comparison Plot:* Compares target data (red dots) with the calculated spectrum (blue line) over the **full** wavelength range of the input file. The difference ΔT is shown on the right axis (green dotted line) *only within the optimization range*. The Fit Quality text box refers to the quality *within the optimization range*.
-            * *Final n/k Plot:* Shows the optimal n(λ) (blue) and k(λ) (red, potentially log scale) curves and the calculated spline knot positions (circles/squares) *within the optimization range*.
-        * **Result Data:**
-            * An "Email Results to Me (CC Admin)" button appears. Clicking this sends a detailed Excel file containing parameters, n/k values, calculated spectra, and target data over the full range to your email address (the one you provided initially), with a copy to the administrator.
-            * An expander ("Show Result Data Table") allows viewing the result data table directly in the app.
+    7.  **Analyze Results (Main Area):**
+        * **Metrics:** Optimal Thickness, Final MSE, Fit Quality Rating.
+        * **Result Plots:** Comparison plot (Target vs. Calc) and Final n/k plot.
+        * **Result Data:** An expander ("Show Result Data Table") allows viewing the result data.
+    8.  **User Access Log:** An expander ("Show User Access Log") displays a list of users who have accessed the application (timestamp, name, email).
 
     Tips:
-    - If loading fails, check the CSV format (delimiters, decimals, numeric data, header row) and review the Log Messages.
-    - Choose a realistic thickness range. A too-wide range might slow down optimization unnecessarily.
-    - The optimization Lambda range (set in the sidebar) is crucial: it defines the data used for fitting AND must respect the substrate's physical limits. Check sidebar warnings.
-    - A low MSE value and a good 'Fit Quality' indicate a successful fit *mathematically*.
-    - **Crucially:** Visually inspect the Comparison Plot (does the blue line match the red dots well?) AND the n/k Plot (are the resulting n(λ) and k(λ) curves physically plausible for your material?). Sometimes a good mathematical fit yields unphysical optical constants.
-    - If using parallel workers (`workers > 1` or `-1`), ensure your environment supports multiprocessing (may not work on all free Streamlit Cloud tiers).
-    - Ensure email credentials (for the *sender*) are correctly configured in Streamlit secrets for notifications and result emails to work. Use an App Password for services like Gmail.
-    """ # Updated help text
+    - Check CSV format and Log Messages if loading fails.
+    - Choose realistic thickness and Lambda ranges.
+    - Visually inspect plots for physical plausibility alongside mathematical fit quality.
+    - The User Access Log persistence depends on the deployment environment (may be lost on restarts in some cloud platforms).
+    """
 
     with st.expander("Help / Instructions", expanded=False):
         st.markdown(help_text_en)
 
     # Sidebar Footer (Keep as before)
     st.sidebar.markdown("---")
-    st.sidebar.info("Monolayer Optimizer v1.2 - Streamlit App adapted from original code by F. Lemarchand.")
+    st.sidebar.info("Monolayer Optimizer v1.3 - Streamlit App adapted from original code by F. Lemarchand.")
