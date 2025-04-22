@@ -15,6 +15,10 @@ import pandas as pd
 import warnings
 import math
 import io
+import smtplib
+from email.mime.text import MIMEText
+from datetime import datetime
+import pytz
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -540,6 +544,47 @@ def create_excel_file(results_data):
     output.seek(0)
     return output.getvalue()
 
+def send_email_notification(user_name, user_email):
+    try:
+        sender_email = st.secrets["email_credentials"]["sender_email"]
+        sender_password = st.secrets["email_credentials"]["sender_password"]
+        recipient_email = st.secrets["recipient_info"]["recipient_email"]
+        smtp_server = st.secrets["email_credentials"]["smtp_server"]
+        smtp_port = st.secrets["email_credentials"]["smtp_port"]
+
+        timestamp = datetime.now(pytz.timezone("Europe/Paris")).strftime("%Y-%m-%d %H:%M:%S %Z")
+
+        subject = f"Monolayer Optimizer App Usage - {timestamp}"
+        body = f"""
+        A user accessed the Monolayer Optimizer application.
+
+        Timestamp: {timestamp}
+        Name: {user_name if user_name else 'Not provided'}
+        Email: {user_email}
+
+        (This is an automated notification)
+        """
+
+        msg = MIMEText(body)
+        msg['Subject'] = subject
+        msg['From'] = sender_email
+        msg['To'] = recipient_email
+
+        with smtplib.SMTP(smtp_server, smtp_port) as server:
+            server.starttls()
+            server.login(sender_email, sender_password)
+            server.sendmail(sender_email, recipient_email, msg.as_string())
+        add_log_message("info", f"Usage notification sent to {recipient_email} for user {user_email}")
+        return True
+    except KeyError as e:
+        add_log_message("error", f"Email credentials missing in secrets.toml: {e}. Cannot send email.")
+        st.error("Email notification configuration is incomplete. Please check secrets.", icon="🚨")
+        return False
+    except Exception as e:
+        add_log_message("error", f"Failed to send email notification: {e}")
+        st.error(f"Failed to send notification email: {e}", icon="🚨")
+        return False
+
 if 'target_data' not in st.session_state: st.session_state.target_data = None
 if 'target_filename_base' not in st.session_state: st.session_state.target_filename_base = None
 if 'lambda_min_file' not in st.session_state: st.session_state.lambda_min_file = None
@@ -556,14 +601,12 @@ if 'substrate_choice' not in st.session_state: st.session_state.substrate_choice
 if 'target_type' not in st.session_state: st.session_state.target_type = "T_norm"
 if 'last_loaded_source' not in st.session_state: st.session_state.last_loaded_source = None
 
-# === ADDED FOR NAME/EMAIL COLLECTION ===
 if 'info_submitted' not in st.session_state:
     st.session_state.info_submitted = False
 if 'user_name' not in st.session_state:
     st.session_state.user_name = ""
 if 'user_email' not in st.session_state:
     st.session_state.user_email = ""
-# === END OF ADDED SESSION STATE ===
 
 default_advanced_params = {
     'num_knots_n': 6, 'num_knots_k': 6, 'use_inv_lambda_sq_distrib': False,
@@ -576,10 +619,10 @@ if 'advanced_optim_params' not in st.session_state:
 
 st.set_page_config(page_title="Monolayer Optimizer", layout="wide")
 
-# === WRAP MAIN APP IN CONDITIONAL DISPLAY ===
 if not st.session_state.info_submitted:
-    st.header("Welcome !")
+    st.header("Welcome!")
     st.write("Please enter your name or your e-mail to continue.")
+    st.info("Privacy Notice: Your email is collected to track application usage and will not be shared.", icon="ℹ️")
 
     with st.form("info_form"):
         name_input = st.text_input("Your name (optional)")
@@ -592,13 +635,16 @@ if not st.session_state.info_submitted:
                 st.session_state.user_name = name_input
                 st.session_state.user_email = email_input
                 st.session_state.info_submitted = True
+
+                email_sent_successfully = send_email_notification(name_input, email_input)
+                # Continue even if email fails, but log the error (handled in send_email_notification)
+
                 st.rerun()
             else:
                 st.error("Please provide at least an email address.")
 
 else:
-    # --- MAIN APPLICATION UI STARTS HERE ---
-    st.success(f"Welcome, {st.session_state.user_name or 'User'}!") # Optional Welcome message
+    st.success(f"Welcome, {st.session_state.user_name or 'User'}!")
 
     st.title("Monolayer Optical Properties Optimizer")
 
@@ -684,6 +730,24 @@ else:
             updating_options = ['immediate', 'deferred']
             adv_params['updating'] = st.selectbox("Updating Mode", options=updating_options, index=updating_options.index(adv_params['updating']))
             adv_params['workers'] = st.number_input("Parallel Workers (-1 = Auto)", min_value=-1, value=adv_params['workers'], step=1, help="Uses multiple CPU cores if > 1 or -1. May not work on all Streamlit Cloud platforms.")
+
+        st.divider()
+        if st.button("🔄 Reset Parameters"):
+            st.session_state.config_lambda_min = "---"
+            st.session_state.config_lambda_max = "---"
+            st.session_state.thickness_min = 300.0
+            st.session_state.thickness_max = 600.0
+            st.session_state.advanced_optim_params = default_advanced_params.copy()
+            # Re-evaluate lambda range based on file if loaded
+            if st.session_state.target_data is not None:
+                substrate_min_wl_reset = get_substrate_min_lambda(st.session_state.substrate_choice)
+                initial_config_min_reset = max(st.session_state.lambda_min_file, substrate_min_wl_reset)
+                if initial_config_min_reset < st.session_state.lambda_max_file:
+                     st.session_state.config_lambda_min = f"{initial_config_min_reset:.1f}"
+                     st.session_state.config_lambda_max = f"{st.session_state.lambda_max_file:.1f}"
+
+            add_log_message("info", "Configuration parameters reset to defaults.")
+            st.rerun()
 
     col1, col2 = st.columns([0.6, 0.4])
 
@@ -1199,6 +1263,7 @@ else:
         * **Substrate Material:** Choose the substrate from the dropdown. This affects the refractive index used in calculations and sets a minimum valid wavelength.
         * **Optimization Lambda Range:** Define the Min/Max wavelength (nm) for the optimization. This range must be within the range of your loaded file AND above the substrate's minimum valid wavelength. Values are automatically suggested after loading a file but can be adjusted. Check sidebar warnings.
         * **Advanced Optimization Settings (Optional):** Expand this section to fine-tune spline parameters (knots) and Differential Evolution algorithm settings (for advanced users). Defaults are usually reasonable.
+        * **Reset Parameters:** Click this button in the sidebar to reset Lambda Range, Thickness Range, and Advanced Optimization settings to their defaults.
 
     2.  **Select Target Type (Main Area):**
         * Choose whether your target data represents "Normalized Transmission" (T Norm (%)) or "Sample Transmission" (T Sample (%)).
@@ -1242,12 +1307,11 @@ else:
     - A low MSE value and a good 'Fit Quality' indicate a successful fit *mathematically*.
     - **Crucially:** Visually inspect the Comparison Plot (does the blue line match the red dots well?) AND the n/k Plot (are the resulting n(λ) and k(λ) curves physically plausible for your material?). Sometimes a good mathematical fit yields unphysical optical constants.
     - If using parallel workers (`workers > 1` or `-1`), ensure your environment supports multiprocessing (may not work on all free Streamlit Cloud tiers).
+    - Ensure email credentials are correctly configured in Streamlit secrets for notifications to work. Use an App Password for services like Gmail.
     """
 
     with st.expander("Help / Instructions", expanded=False):
         st.markdown(help_text_en)
 
     st.sidebar.markdown("---")
-    st.sidebar.info("Monolayer Optimizer vX.Y - Streamlit App adapted from original code by F. Lemarchand.")
-
-# === END OF WRAPPED MAIN APP ===
+    st.sidebar.info("Monolayer Optimizer v1.1 - Streamlit App adapted from original code by F. Lemarchand.")
