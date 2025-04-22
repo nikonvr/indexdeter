@@ -82,7 +82,7 @@ def get_n_substrate(substrate_id, wavelength_nm):
     elif substrate_id == 3: # Sapphire
         min_wl = 230.0
         if wavelength_nm < min_wl: return np.nan
-        B1 = 2.003059; C1 = 0.011694; B2 = 0.360392; C2 = 1000.; B3=0.; C3=1.
+        B1=1.4313493; C1=0.0726631**2; B2=0.65054713; C2=0.1193242**2; B3=5.3414021; C3=18.028251 # Corrected Sapphire coefficients
         return sellmeier_calc(l_um_sq, B1, C1, B2, C2, B3, C3)
     elif substrate_id == 4: # B270i
         min_wl = 400.0
