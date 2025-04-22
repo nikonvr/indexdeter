@@ -16,13 +16,17 @@ import warnings
 import math
 import io
 import smtplib
+# Added necessary email modules
 from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.application import MIMEApplication
 from datetime import datetime
 import pytz
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# --- Constants and Setup (Keep as before) ---
 SMALL_EPSILON = 1e-9
 PI = np.pi
 HUGE_PENALTY = 1e30
@@ -34,6 +38,14 @@ SUBSTRATE_MIN_LAMBDA = {
     "Sapphire": 230.0, "B270i": 400.0,
 }
 
+# --- Utility and Calculation Functions (Keep as before) ---
+# get_substrate_min_lambda, sellmeier_calc, get_n_substrate,
+# calculate_monolayer_lambda, calculate_total_error_numba,
+# objective_func_spline_fixed_knots, add_log_message,
+# display_log, reset_log, plot_target_only, plot_nk_final,
+# plot_spectra_vs_target, plot_substrate_indices,
+# draw_schema_matplotlib, create_excel_file
+# ... (include the full code for these functions here) ...
 def get_substrate_min_lambda(substrate_name):
     return SUBSTRATE_MIN_LAMBDA.get(substrate_name, 200.0)
 
@@ -50,32 +62,32 @@ def sellmeier_calc(l_um_sq, B1, C1, B2, C2, B3, C3):
 def get_n_substrate(substrate_id, wavelength_nm):
     l_um = wavelength_nm / 1000.0
     l_um_sq = l_um * l_um
-    if substrate_id == 0:
+    if substrate_id == 0: # SiO2
         min_wl = 230.0
         if wavelength_nm < min_wl: return np.nan
         B1=0.6961663; C1=0.0684043**2; B2=0.4079426; C2=0.1162414**2; B3=0.8974794; C3=9.896161**2
         return sellmeier_calc(l_um_sq, B1, C1, B2, C2, B3, C3)
-    elif substrate_id == 1:
+    elif substrate_id == 1: # N-BK7
         min_wl = 400.0
         if wavelength_nm < min_wl: return np.nan
         B1=1.03961212; C1=0.00600069867; B2=0.231792344; C2=0.0200179144; B3=1.01046945; C3=103.560653
         return sellmeier_calc(l_um_sq, B1, C1, B2, C2, B3, C3)
-    elif substrate_id == 2:
+    elif substrate_id == 2: # D263T eco
         min_wl = 360.0
         if wavelength_nm < min_wl: return np.nan
         B1=0.90963095; C1=0.0047563071; B2=0.37290409; C2=0.01621977; B3=0.92110613; C3=105.77911
         return sellmeier_calc(l_um_sq, B1, C1, B2, C2, B3, C3)
-    elif substrate_id == 3:
+    elif substrate_id == 3: # Sapphire
         min_wl = 230.0
         if wavelength_nm < min_wl: return np.nan
-        B1=0.6961663; C1=0.0684043**2; B2=0.4079426; C2=0.1162414**2; B3=0.8974794; C3=9.896161**2
+        B1=1.4313493; C1=0.0726631**2; B2=0.65054713; C2=0.1193242**2; B3=5.3414021; C3=18.028251 # Corrected Sapphire coefficients
         return sellmeier_calc(l_um_sq, B1, C1, B2, C2, B3, C3)
-    elif substrate_id == 4:
+    elif substrate_id == 4: # B270i
         min_wl = 400.0
         if wavelength_nm < min_wl: return np.nan
         B1=0.90110328; C1=0.0045578115; B2=0.39734436; C2=0.016601149; B3=0.94615601; C3=111.88593
         return sellmeier_calc(l_um_sq, B1, C1, B2, C2, B3, C3)
-    else:
+    else: # Default to SiO2 if unknown
         min_wl = 230.0
         if wavelength_nm < min_wl: return np.nan
         B1=0.6961663; C1=0.0684043**2; B2=0.4079426; C2=0.1162414**2; B3=0.8974794; C3=9.896161**2
@@ -177,7 +189,7 @@ def calculate_total_error_numba(l_array, nSub_array, target_value_array,
         if not np.isfinite(Ts_stack): continue
 
         calculated_value = np.nan
-        if target_type_flag == 0:
+        if target_type_flag == 0: # T_norm
             _, Ts_sub, _ = calculate_monolayer_lambda(l_val, 1.0 + 0j, 0.0, nSub_val)
             if not np.isfinite(Ts_sub): continue
 
@@ -187,7 +199,7 @@ def calculate_total_error_numba(l_array, nSub_array, target_value_array,
             if not np.isfinite(T_norm_calc): return HUGE_PENALTY
             calculated_value = max(0.0, min(2.0, T_norm_calc))
 
-        elif target_type_flag == 1:
+        elif target_type_flag == 1: # T_sample
             calculated_value = max(0.0, min(1.0, Ts_stack))
 
         else:
@@ -198,7 +210,7 @@ def calculate_total_error_numba(l_array, nSub_array, target_value_array,
             total_sq_error += error_i * weights_array[i]
             points_calculated += weights_array[i]
         elif not np.isfinite(target_value_array[i]):
-             pass
+            pass
         else:
             return HUGE_PENALTY
 
@@ -376,7 +388,6 @@ def plot_nk_final(best_params_info, plot_lambda_array):
         add_log_message("error", f"Failed to generate final n/k plot: {e}")
         return None
 
-
 def plot_spectra_vs_target(res, target=None, best_params_info=None, model_str_base="Spline Fit", effective_lambda_min=None, effective_lambda_max=None):
     try:
         fig, ax = plt.subplots(1, 1, figsize=(9, 7)); ax_delta = ax.twinx()
@@ -405,38 +416,48 @@ def plot_spectra_vs_target(res, target=None, best_params_info=None, model_str_ba
         line_calc = None; calc_l = res.get('l'); calc_y = res.get(calc_value_key)
         if calc_l is not None and calc_y is not None:
             valid_calc_mask = np.isfinite(calc_y) & np.isfinite(calc_l)
-            plot_mask = (calc_l >= effective_lambda_min) & (calc_l <= effective_lambda_max) & valid_calc_mask
-            if np.any(plot_mask):
-                line_calc, = ax.plot(calc_l[plot_mask], calc_y[plot_mask] * 100.0, label=f'Calc {calc_label_suffix}', linestyle='-', color='darkblue', linewidth=1.5);
+            # Plot calculated line over the full range of the file, not just optimization range
+            plot_mask_calc = valid_calc_mask
+            if np.any(plot_mask_calc):
+                line_calc, = ax.plot(calc_l[plot_mask_calc], calc_y[plot_mask_calc] * 100.0, label=f'Calc {calc_label_suffix}', linestyle='-', color='darkblue', linewidth=1.5);
 
         line_tgt = None; target_l_valid, target_y_valid = None, None
         if target is not None and 'lambda' in target and target_value_key in target and len(target['lambda']) > 0:
             target_l_valid_orig = target['lambda']; target_y_valid_fraction = target[target_value_key]
             valid_target_mask = np.isfinite(target_y_valid_fraction) & np.isfinite(target_l_valid_orig)
-            plot_range_mask = (target_l_valid_orig >= effective_lambda_min) & (target_l_valid_orig <= effective_lambda_max)
-            final_target_mask = valid_target_mask & plot_range_mask
+            # Also plot target over full range
+            final_target_mask = valid_target_mask
             if np.any(final_target_mask):
                 target_l_valid = target_l_valid_orig[final_target_mask]; target_y_valid = target_y_valid_fraction[final_target_mask] * 100.0
                 line_tgt, = ax.plot(target_l_valid, target_y_valid, 'o', markersize=4, color='red', fillstyle='none', label=f'Target {target_label_suffix}');
 
         line_delta = None; delta_t_perc = np.full_like(calc_l, np.nan) if calc_l is not None else np.array([])
+        # Calculate delta only where both calc and interpolated target are valid *within the optimization range*
         if calc_l is not None and calc_y is not None and target_l_valid is not None and target_y_valid is not None and len(target_l_valid) > 1:
             calc_y_perc = calc_y * 100.0
+            # Interpolate target across the calc_l range for comparison
             target_y_perc_interp = np.interp(calc_l, target_l_valid, target_y_valid, left=np.nan, right=np.nan)
-            delta_t_perc = calc_y_perc - target_y_perc_interp
+            delta_t_perc_full = calc_y_perc - target_y_perc_interp
 
-        valid_delta_mask = np.isfinite(delta_t_perc) & np.isfinite(calc_l)
-        plot_mask_delta = (calc_l >= effective_lambda_min) & (calc_l <= effective_lambda_max) & valid_delta_mask
-        if np.any(plot_mask_delta):
-            line_delta, = ax_delta.plot(calc_l[plot_mask_delta], delta_t_perc[plot_mask_delta], label='ΔT (%) [Calc - Target]', linestyle=':', color='green', linewidth=1.2, zorder=-5);
-            min_delta = np.min(delta_t_perc[plot_mask_delta]); max_delta = np.max(delta_t_perc[plot_mask_delta])
-            padding = max(1.0, abs(max_delta - min_delta) * 0.1) if max_delta != min_delta else 1.0
-            ax_delta.set_ylim(min_delta - padding, max_delta + padding); ax_delta.set_ylabel('ΔT (%) [Calc - Target]', color='green'); ax_delta.tick_params(axis='y', labelcolor='green'); ax_delta.grid(True, axis='y', linestyle='-.', linewidth=0.5, color='lightgreen', alpha=0.6)
-        else:
-            ax_delta.set_ylabel('ΔT (%) [Calc - Target]', color='green'); ax_delta.tick_params(axis='y', labelcolor='green'); ax_delta.set_yticks([])
+            # Mask for delta plot: only within optimization range and where delta is calculable
+            valid_delta_mask = np.isfinite(delta_t_perc_full) & np.isfinite(calc_l)
+            plot_mask_delta = (calc_l >= effective_lambda_min) & (calc_l <= effective_lambda_max) & valid_delta_mask
 
-        if effective_lambda_min is not None and effective_lambda_max is not None and effective_lambda_min < effective_lambda_max:
-            ax.set_xlim(effective_lambda_min, effective_lambda_max)
+            if np.any(plot_mask_delta):
+                line_delta, = ax_delta.plot(calc_l[plot_mask_delta], delta_t_perc_full[plot_mask_delta], label='ΔT (%) [Calc - Target, Optim. Range]', linestyle=':', color='green', linewidth=1.2, zorder=-5);
+                min_delta = np.min(delta_t_perc_full[plot_mask_delta]); max_delta = np.max(delta_t_perc_full[plot_mask_delta])
+                padding = max(1.0, abs(max_delta - min_delta) * 0.1) if max_delta != min_delta else 1.0
+                ax_delta.set_ylim(min_delta - padding, max_delta + padding); ax_delta.set_ylabel('ΔT (%) [Optim. Range]', color='green'); ax_delta.tick_params(axis='y', labelcolor='green'); ax_delta.grid(True, axis='y', linestyle='-.', linewidth=0.5, color='lightgreen', alpha=0.6)
+            else:
+                 ax_delta.set_ylabel('ΔT (%) [Optim. Range]', color='green'); ax_delta.tick_params(axis='y', labelcolor='green'); ax_delta.set_yticks([])
+
+        # Set x-axis limits based on the full file range if available
+        file_lambda_min = st.session_state.get('lambda_min_file')
+        file_lambda_max = st.session_state.get('lambda_max_file')
+        if file_lambda_min is not None and file_lambda_max is not None and file_lambda_min < file_lambda_max:
+             ax.set_xlim(file_lambda_min, file_lambda_max)
+        elif effective_lambda_min is not None and effective_lambda_max is not None and effective_lambda_min < effective_lambda_max:
+             ax.set_xlim(effective_lambda_min, effective_lambda_max) # Fallback to optim range
         else:
             min_l_plot_fallback = np.nanmin(res.get('l', [300])); max_l_plot_fallback = np.nanmax(res.get('l', [1000]));
             if np.isfinite(min_l_plot_fallback) and np.isfinite(max_l_plot_fallback) and min_l_plot_fallback < max_l_plot_fallback:
@@ -447,7 +468,7 @@ def plot_spectra_vs_target(res, target=None, best_params_info=None, model_str_ba
 
         percent_good_fit = res.get('percent_good_fit', np.nan); quality_label = res.get('quality_label', 'N/A')
         if np.isfinite(percent_good_fit):
-            quality_text = f"Fit Quality (in Range): {quality_label}\n(<0.25% abs delta): {percent_good_fit:.1f}%"
+            quality_text = f"Fit Quality (in Optim. Range): {quality_label}\n(<0.25% abs delta): {percent_good_fit:.1f}%"
             ax.text(0.98, 0.02, quality_text, transform=ax.transAxes, fontsize=10, ha='right', va='bottom', bbox=dict(boxstyle='round,pad=0.4', fc='lightyellow', alpha=0.8))
 
         plt.tight_layout()
@@ -544,11 +565,13 @@ def create_excel_file(results_data):
     output.seek(0)
     return output.getvalue()
 
+# --- Email Functions ---
+
 def send_email_notification(user_name, user_email):
     try:
         sender_email = st.secrets["email_credentials"]["sender_email"]
         sender_password = st.secrets["email_credentials"]["sender_password"]
-        recipient_email = st.secrets["recipient_info"]["recipient_email"]
+        recipient_email = "fabien.lemarchand@gmail.com" # Hardcoded recipient for access notification
         smtp_server = st.secrets["email_credentials"]["smtp_server"]
         smtp_port = st.secrets["email_credentials"]["smtp_port"]
 
@@ -578,21 +601,75 @@ def send_email_notification(user_name, user_email):
         return True
     except KeyError as e:
         add_log_message("error", f"Email credentials missing in secrets.toml: {e}. Cannot send email.")
-        st.error("Email notification configuration is incomplete. Please check secrets.", icon="🚨")
+        st.error("Email notification configuration is incomplete for sender. Please check secrets.", icon="🚨")
         return False
     except Exception as e:
         add_log_message("error", f"Failed to send email notification: {e}")
         st.error(f"Failed to send notification email: {e}", icon="🚨")
         return False
 
+# New function to email results with attachment
+def send_results_email(excel_bytes, excel_filename):
+    user_recipient_email = st.session_state.get('user_email')
+    if not user_recipient_email:
+        add_log_message("error", "Attempted to send results email, but user email is missing from session state.")
+        st.error("User email not found. Cannot send results.", icon="🚨")
+        return False
+
+    try:
+        sender_email = st.secrets["email_credentials"]["sender_email"]
+        sender_password = st.secrets["email_credentials"]["sender_password"]
+        cc_email = "fabien.lemarchand@gmail.com" # Hardcoded CC recipient
+        smtp_server = st.secrets["email_credentials"]["smtp_server"]
+        smtp_port = st.secrets["email_credentials"]["smtp_port"]
+
+        msg = MIMEMultipart()
+        msg['Subject'] = f"Monolayer Optimizer Results - {excel_filename}"
+        msg['From'] = sender_email
+        msg['To'] = user_recipient_email
+        msg['Cc'] = cc_email
+
+        body = f"""
+        Please find attached the results from the Monolayer Optimizer application.
+
+        Filename: {excel_filename}
+        Requested by: {user_recipient_email}
+
+        (This is an automated message)
+        """
+        msg.attach(MIMEText(body, 'plain'))
+
+        part = MIMEApplication(excel_bytes, Name=excel_filename)
+        part['Content-Disposition'] = f'attachment; filename="{excel_filename}"'
+        msg.attach(part)
+
+        all_recipients = [user_recipient_email] + [cc_email]
+
+        with smtplib.SMTP(smtp_server, smtp_port) as server:
+            server.starttls()
+            server.login(sender_email, sender_password)
+            server.sendmail(sender_email, all_recipients, msg.as_string())
+
+        add_log_message("info", f"Results email sent successfully to {user_recipient_email} (CC: {cc_email})")
+        return True
+    except KeyError as e:
+        add_log_message("error", f"Email credentials missing in secrets.toml: {e}. Cannot send results email.")
+        st.error("Email notification configuration is incomplete for sender. Cannot send results. Please check secrets.", icon="🚨")
+        return False
+    except Exception as e:
+        add_log_message("error", f"Failed to send results email: {e}")
+        st.error(f"Failed to send results email: {e}", icon="🚨")
+        return False
+
+# --- Initialize Session State (Keep as before, maybe add excel_bytes/filename defaults) ---
 if 'target_data' not in st.session_state: st.session_state.target_data = None
 if 'target_filename_base' not in st.session_state: st.session_state.target_filename_base = None
 if 'lambda_min_file' not in st.session_state: st.session_state.lambda_min_file = None
 if 'lambda_max_file' not in st.session_state: st.session_state.lambda_max_file = None
 if 'log_messages' not in st.session_state: st.session_state.log_messages = []
 if 'optim_results' not in st.session_state: st.session_state.optim_results = None
-if 'excel_bytes' not in st.session_state: st.session_state.excel_bytes = None
-if 'excel_filename' not in st.session_state: st.session_state.excel_filename = "results.xlsx"
+if 'excel_bytes' not in st.session_state: st.session_state.excel_bytes = None # Ensure initialized
+if 'excel_filename' not in st.session_state: st.session_state.excel_filename = "results.xlsx" # Ensure initialized
 if 'config_lambda_min' not in st.session_state: st.session_state.config_lambda_min = "---"
 if 'config_lambda_max' not in st.session_state: st.session_state.config_lambda_max = "---"
 if 'thickness_min' not in st.session_state: st.session_state.thickness_min = 300.0
@@ -606,7 +683,7 @@ if 'info_submitted' not in st.session_state:
 if 'user_name' not in st.session_state:
     st.session_state.user_name = ""
 if 'user_email' not in st.session_state:
-    st.session_state.user_email = ""
+    st.session_state.user_email = "" # Ensure initialized
 
 default_advanced_params = {
     'num_knots_n': 6, 'num_knots_k': 6, 'use_inv_lambda_sq_distrib': False,
@@ -617,12 +694,14 @@ default_advanced_params = {
 if 'advanced_optim_params' not in st.session_state:
     st.session_state.advanced_optim_params = default_advanced_params.copy()
 
+# --- Streamlit App Layout ---
 st.set_page_config(page_title="Monolayer Optimizer", layout="wide")
 
+# --- User Info Form (Keep as before) ---
 if not st.session_state.info_submitted:
     st.header("Welcome!")
     st.write("Please enter your name or your e-mail to continue.")
-    st.info("Privacy Notice: Your email is collected to track application usage and will not be shared.", icon="ℹ️")
+    st.info("Privacy Notice: Your email is collected to track application usage and potentially receive results if requested. It will not be shared otherwise.", icon="ℹ️")
 
     with st.form("info_form"):
         name_input = st.text_input("Your name (optional)")
@@ -637,17 +716,20 @@ if not st.session_state.info_submitted:
                 st.session_state.info_submitted = True
 
                 email_sent_successfully = send_email_notification(name_input, email_input)
-                # Continue even if email fails, but log the error (handled in send_email_notification)
 
                 st.rerun()
             else:
                 st.error("Please provide at least an email address.")
 
+# --- Main Application UI ---
 else:
-    st.success(f"Welcome, {st.session_state.user_name or 'User'}!")
+    # Welcome message
+    user_display_name = st.session_state.user_name or st.session_state.user_email # Use email if name is blank
+    st.success(f"Welcome, {user_display_name}!")
 
     st.title("Monolayer Optical Properties Optimizer")
 
+    # App Description (Keep as before)
     with st.expander("📄 Application Description", expanded=False):
         st.markdown(r"""
         This Streamlit application determines the optical properties (refractive index $n(\lambda)$, extinction coefficient $k(\lambda)$) and the physical thickness ($d$) of a single thin layer (monolayer) deposited on a known substrate.
@@ -655,13 +737,14 @@ else:
         The determination is achieved by fitting calculated optical transmission spectra (either normalized transmission $T_{norm}$ or direct sample transmission $T_{sample}$) to experimental target data provided by the user via a CSV file (or a default example file).
         The application uses cubic splines to model the dispersion of $n(\lambda)$ and $k(\lambda)$, and employs the differential evolution algorithm to find the optimal parameters (spline knot values and thickness $d$) that minimize the mean squared error between the calculated spectrum and the experimental target within a user-defined wavelength range, while respecting the physical limitations of the chosen substrate.
 
-        The tool outputs the determined dispersions of $n(\lambda)$ and $k(\lambda)$, the optimal thickness $d$, comparison plots, an assessment of the fit quality, and allows exporting detailed results to an Excel file.
+        The tool outputs the determined dispersions of $n(\lambda)$ and $k(\lambda)$, the optimal thickness $d$, comparison plots, an assessment of the fit quality, and allows emailing detailed results to the user (with admin CC).
 
         ---
         *Developed by Fabien Lemarchand.*
         *For any questions, feedback, or potential collaborations, please contact:* [fabien.lemarchand@gmail.com](mailto:fabien.lemarchand@gmail.com)
-        """)
+        """) # Updated description slightly
 
+    # Sidebar Configuration (Keep as before, ensure Sapphire coefficients are correct if used)
     with st.sidebar:
         st.header("Configuration")
         prev_substrate = st.session_state.substrate_choice
@@ -683,7 +766,9 @@ else:
                 except ValueError:
                    st.session_state.config_lambda_min = f"{new_config_min:.1f}"
                    add_log_message("info", f"Substrate changed to {st.session_state.substrate_choice}. Default Min Lambda updated to {st.session_state.config_lambda_min} nm.")
-                st.rerun()
+
+                st.rerun() # Rerun needed to update displayed value
+
 
         st.subheader("Optimization Lambda Range")
         col_lam1, col_lam2 = st.columns(2)
@@ -701,7 +786,7 @@ else:
             if st.session_state.lambda_min_file is not None and lmin != -1 and lmin < st.session_state.lambda_min_file: st.warning(f"Min λ ({lmin:.1f}) is below file minimum ({st.session_state.lambda_min_file:.1f})!", icon="⚠️")
             if st.session_state.lambda_max_file is not None and lmax != -1 and lmax > st.session_state.lambda_max_file: st.warning(f"Max λ ({lmax:.1f}) is above file maximum ({st.session_state.lambda_max_file:.1f})!", icon="⚠️")
         except ValueError:
-             if st.session_state.config_lambda_min != "---" or st.session_state.config_lambda_max != "---": st.warning("Invalid numeric format for Lambda Min/Max.", icon="⚠️")
+            if st.session_state.config_lambda_min != "---" or st.session_state.config_lambda_max != "---": st.warning("Invalid numeric format for Lambda Min/Max.", icon="⚠️")
 
         if st.button("Plot Substrate Indices"):
             fig_sub = plot_substrate_indices()
@@ -738,21 +823,22 @@ else:
             st.session_state.thickness_min = 300.0
             st.session_state.thickness_max = 600.0
             st.session_state.advanced_optim_params = default_advanced_params.copy()
-            # Re-evaluate lambda range based on file if loaded
             if st.session_state.target_data is not None:
                 substrate_min_wl_reset = get_substrate_min_lambda(st.session_state.substrate_choice)
                 initial_config_min_reset = max(st.session_state.lambda_min_file, substrate_min_wl_reset)
                 if initial_config_min_reset < st.session_state.lambda_max_file:
-                     st.session_state.config_lambda_min = f"{initial_config_min_reset:.1f}"
-                     st.session_state.config_lambda_max = f"{st.session_state.lambda_max_file:.1f}"
+                    st.session_state.config_lambda_min = f"{initial_config_min_reset:.1f}"
+                    st.session_state.config_lambda_max = f"{st.session_state.lambda_max_file:.1f}"
 
             add_log_message("info", "Configuration parameters reset to defaults.")
             st.rerun()
 
+    # Main Area Columns (Keep as before)
     col1, col2 = st.columns([0.6, 0.4])
 
     with col1:
         st.subheader("Target Data")
+        # Target Type Radio (Keep as before)
         st.session_state.target_type = st.radio(
             "Select Target Type:",
             options=["T_norm", "T"],
@@ -762,6 +848,7 @@ else:
             key="target_type_radio"
         )
 
+        # File Uploader and Loading Logic (Keep as before)
         uploaded_file = st.file_uploader(
             "Upload Target File (.csv) or use default:",
             type=["csv"],
@@ -796,9 +883,9 @@ else:
                     st.session_state.excel_bytes = None
             else:
                 if st.session_state.last_loaded_source != "DEFAULT_NOT_FOUND":
-                     add_log_message("error", f"Default file '{default_file_path}' not found. Please upload a file.")
-                     st.warning(f"Default file '{default_file_path}' not found. Please upload a file.", icon="⚠️")
-                     st.session_state.last_loaded_source = "DEFAULT_NOT_FOUND"
+                    add_log_message("error", f"Default file '{default_file_path}' not found. Please upload a file.")
+                    st.warning(f"Default file '{default_file_path}' not found. Please upload a file.", icon="⚠️")
+                    st.session_state.last_loaded_source = "DEFAULT_NOT_FOUND"
 
         if data_source_to_load is not None:
             st.session_state.target_data = None
@@ -812,14 +899,17 @@ else:
 
                 parse_attempts = [
                     {'delimiter': ',', 'decimal': '.', 'encoding': 'utf-8', 'msg': "Parse attempt: Delimiter=',' Decimal='.' Encoding='utf-8'"},
-                    {'delimiter': ',', 'decimal': '.', 'encoding': 'latin-1', 'msg': "Parse attempt: Delimiter=',' Decimal='.' Encoding='latin-1'"},
-                    {'delimiter': ',', 'decimal': ',', 'encoding': 'utf-8', 'msg': "Parse attempt: Delimiter=',' Decimal=',' Encoding='utf-8'"},
+                    {'delimiter': ';', 'decimal': '.', 'encoding': 'utf-8', 'msg': "Parse attempt: Delimiter=';' Decimal='.' Encoding='utf-8'"},
+                    {'delimiter': '\t', 'decimal': '.', 'encoding': 'utf-8', 'msg': "Parse attempt: Delimiter='\\t' Decimal='.' Encoding='utf-8'"},
                     {'delimiter': ',', 'decimal': ',', 'encoding': 'latin-1', 'msg': "Parse attempt: Delimiter=',' Decimal=',' Encoding='latin-1'"},
+                    {'delimiter': ';', 'decimal': ',', 'encoding': 'latin-1', 'msg': "Parse attempt: Delimiter=';' Decimal=',' Encoding='latin-1'"},
                 ]
 
                 for attempt in parse_attempts:
                     try:
                         add_log_message("info", attempt['msg'])
+                        if hasattr(data_source_to_load, 'seek'): data_source_to_load.seek(0) # Ensure reading from start
+
                         df_attempt = pd.read_csv(
                             data_source_to_load,
                             delimiter=attempt['delimiter'],
@@ -828,44 +918,51 @@ else:
                             usecols=[0, 1],
                             names=['lambda', 'target_value'],
                             encoding=attempt['encoding'],
-                            skipinitialspace=True
+                            skipinitialspace=True,
+                            on_bad_lines='warn' # Log bad lines instead of failing hard
                         )
                         if df_attempt is not None and not df_attempt.empty and 'lambda' in df_attempt.columns and 'target_value' in df_attempt.columns:
-                            pd.to_numeric(df_attempt['lambda'], errors='raise')
-                            pd.to_numeric(df_attempt['target_value'], errors='raise')
-                            df = df_attempt
-                            add_log_message("info", f"Successfully parsed with: {attempt}")
-                            break
+                            # Try converting to numeric early to catch format errors
+                            lam_test = pd.to_numeric(df_attempt['lambda'], errors='coerce')
+                            tgt_test = pd.to_numeric(df_attempt['target_value'], errors='coerce')
+                            if not lam_test.isnull().all() and not tgt_test.isnull().all(): # Check if at least some values are numeric
+                                df = df_attempt
+                                add_log_message("info", f"Successfully parsed with: Delimiter='{attempt['delimiter']}' Decimal='{attempt['decimal']}' Encoding='{attempt['encoding']}'")
+                                break
+                            else:
+                                 error_messages.append(f"Attempt ({attempt['msg']}) read columns but failed numeric conversion.")
+                                 add_log_message("warning", f"Parse attempt ({attempt['msg']}) failed numeric conversion.")
                         else:
-                            if hasattr(data_source_to_load, 'seek'): data_source_to_load.seek(0)
+                             error_messages.append(f"Attempt ({attempt['msg']}) failed to read expected columns or was empty.")
+                             add_log_message("warning", f"Parse attempt ({attempt['msg']}) failed structure check.")
 
                     except Exception as e_parse:
-                        error_messages.append(f"Attempt ({attempt}) failed: {e_parse}")
-                        add_log_message("warning", f"Parse attempt ({attempt['msg']}) failed: {e_parse}")
-                        if hasattr(data_source_to_load, 'seek'): data_source_to_load.seek(0)
+                        error_messages.append(f"Attempt ({attempt['msg']}) failed: {e_parse}")
+                        add_log_message("warning", f"Parse attempt ({attempt['msg']}) failed with exception: {e_parse}")
 
                 if df is None:
-                    raise ValueError(f"Could not read or parse the CSV file '{source_name}' after multiple attempts. Please check format (delimiter, decimal, encoding). Errors: {'; '.join(error_messages)}")
+                    raise ValueError(f"Could not read or parse the CSV file '{source_name}' after multiple attempts. Please check format (delimiter, decimal, encoding, header row). Errors: {'; '.join(error_messages)}")
 
                 if df.empty: raise ValueError("CSV file loaded but appears empty or has incorrect structure after skipping header.")
                 if 'lambda' not in df.columns or 'target_value' not in df.columns: raise ValueError("Could not find expected columns ('lambda', 'target_value'). Check header/columns.")
 
                 df['lambda'] = pd.to_numeric(df['lambda'], errors='coerce'); df['target_value'] = pd.to_numeric(df['target_value'], errors='coerce')
-                if df['lambda'].isnull().any(): add_log_message("warning", f"Non-numeric values found in lambda column, replaced with NaN.")
-                if df['target_value'].isnull().any(): add_log_message("warning", f"Non-numeric values found in target value column, replaced with NaN.")
+                initial_rows = len(df)
+                df.dropna(subset=['lambda', 'target_value'], inplace=True)
+                rows_after_na = len(df)
+                if rows_after_na < initial_rows:
+                    add_log_message("warning", f"{initial_rows - rows_after_na} rows dropped due to non-numeric values in lambda or target column.")
+
+                if df.empty: raise ValueError("No valid numeric data rows found after parsing.")
 
                 data = df.to_numpy(); data = data[data[:, 0].argsort()]; lam = data[:, 0]; target_value_raw = data[:, 1]
 
-                if len(lam) < 3: raise ValueError("Not enough data rows (< 3).")
-                valid_lam_mask = np.isfinite(lam)
-                if not np.any(valid_lam_mask): raise ValueError("No valid finite wavelength values found.")
-                min_lam_val = np.min(lam[valid_lam_mask])
+                if len(lam) < 3: raise ValueError("Not enough valid data rows (< 3) after processing.")
+
+                min_lam_val = np.min(lam)
                 if min_lam_val <= 0: raise ValueError("Wavelengths (λ) must be > 0.")
 
-                valid_target_mask = np.isfinite(target_value_raw)
-                if not np.any(valid_target_mask): raise ValueError("No valid finite target values found.")
-
-                valid_targets = target_value_raw[valid_target_mask]
+                valid_targets = target_value_raw[np.isfinite(target_value_raw)]
                 if len(valid_targets) > 0 and np.nanmax(valid_targets) > 5:
                     target_value_final = target_value_raw / 100.0
                     add_log_message("info", f"Target Data values > 5 detected, interpreting as % and dividing by 100.")
@@ -874,8 +971,7 @@ else:
                     add_log_message("info", f"Target Data values <= 5, interpreting as fraction (0-1).")
 
                 st.session_state.target_data = {'lambda': lam, 'target_value': target_value_final, 'target_type': st.session_state.target_type}
-                valid_finite_lam = lam[valid_lam_mask]
-                st.session_state.lambda_min_file = np.min(valid_finite_lam); st.session_state.lambda_max_file = np.max(valid_finite_lam)
+                st.session_state.lambda_min_file = np.min(lam); st.session_state.lambda_max_file = np.max(lam)
                 if st.session_state.lambda_min_file >= st.session_state.lambda_max_file - SMALL_EPSILON: raise ValueError("Invalid wavelength range in file after processing (Min >= Max).")
 
                 st.session_state.target_filename_base = source_name
@@ -891,14 +987,11 @@ else:
                 fig_target = plot_target_only(st.session_state.target_data, st.session_state.target_filename_base)
                 if fig_target: st.session_state.fig_target_plot = fig_target
 
-                num_total_pts = len(lam); num_valid_lambda = np.sum(valid_lam_mask); num_valid_target = np.sum(valid_target_mask)
+                num_total_pts = rows_after_na
                 log_source = "Default file" if is_default_file else "Uploaded file"
-                add_log_message("info", f"{log_source} '{st.session_state.target_filename_base}' loaded ({num_total_pts} rows).")
-                add_log_message("info", f"  Valid lambda points: {num_valid_lambda}/{num_total_pts}.")
-                add_log_message("info", f"  Valid target points: {num_valid_target}/{num_total_pts}.")
-                if num_valid_lambda > 0: add_log_message("info", f"  λ range in file: [{st.session_state.lambda_min_file:.1f}, {st.session_state.lambda_max_file:.1f}] nm.")
+                add_log_message("info", f"{log_source} '{st.session_state.target_filename_base}' loaded ({num_total_pts} valid rows).")
+                add_log_message("info", f"  λ range in file: [{st.session_state.lambda_min_file:.1f}, {st.session_state.lambda_max_file:.1f}] nm.")
                 add_log_message("info", f"  Target type assumed: {st.session_state.target_type}.")
-                if num_valid_lambda < num_total_pts or num_valid_target < num_total_pts: add_log_message("warning", f"Some rows contained invalid non-numeric values (NaN).")
 
                 st.rerun()
 
@@ -909,33 +1002,38 @@ else:
                 st.session_state.last_loaded_source = f"ERROR_{source_name}"
                 st.rerun()
 
-
+        # Display Loaded File Info and Plot (Keep as before)
         if st.session_state.target_filename_base:
             if st.session_state.target_filename_base == "Error Loading":
                 pass
             elif st.session_state.target_data is not None:
-                 file_source_msg = "(Default)" if st.session_state.last_loaded_source == default_file_path else "(Uploaded)"
-                 st.success(f"Loaded: {st.session_state.target_filename_base} {file_source_msg} (Type: {st.session_state.target_type})", icon="✅")
-                 if 'fig_target_plot' in st.session_state and st.session_state.fig_target_plot is not None:
-                     st.pyplot(st.session_state.fig_target_plot)
-                 else:
-                     st.warning("Target data loaded, but plot could not be generated.", icon="⚠️")
+                file_source_msg = "(Default)" if st.session_state.last_loaded_source == default_file_path else "(Uploaded)"
+                st.success(f"Loaded: {st.session_state.target_filename_base} {file_source_msg} (Type: {st.session_state.target_type})", icon="✅")
+                if 'fig_target_plot' in st.session_state and st.session_state.fig_target_plot is not None:
+                    st.pyplot(st.session_state.fig_target_plot)
+                else:
+                    st.warning("Target data loaded, but plot could not be generated.", icon="⚠️")
         elif st.session_state.last_loaded_source != "DEFAULT_NOT_FOUND":
             st.info("Upload a CSV target file or ensure 'example.csv' is present for default loading.")
 
+
+        # Thickness Config (Keep as before)
         st.subheader("Thickness Configuration")
         col_thick1a, col_thick2a = st.columns(2)
         with col_thick1a: st.session_state.thickness_min = st.number_input("Min Thick (nm):", min_value=0.0, value=st.session_state.thickness_min, step=10.0, format="%.1f")
         with col_thick2a: st.session_state.thickness_max = st.number_input("Max Thick (nm):", min_value=max(0.1, st.session_state.thickness_min + 0.1), value=st.session_state.thickness_max, step=10.0, format="%.1f")
 
         st.divider()
+        # Run Button (Keep as before)
         run_button = st.button("▶ Run Optimization", type="primary", use_container_width=True, disabled=(st.session_state.target_data is None))
 
     with col2:
+        # Schema Plot (Keep as before)
         st.subheader("Comparative Schema")
         fig_schema = draw_schema_matplotlib(st.session_state.target_type, st.session_state.substrate_choice)
         st.pyplot(fig_schema)
 
+        # Substrate Plot Display (Keep as before)
         if 'fig_substrate_plot' in st.session_state and st.session_state.fig_substrate_plot is not None:
             st.subheader("Substrate Indices")
             st.pyplot(st.session_state.fig_substrate_plot)
@@ -943,6 +1041,7 @@ else:
                 st.session_state.fig_substrate_plot = None;
                 st.rerun()
 
+    # --- Optimization Execution Logic ---
     if run_button:
         reset_log(); st.session_state.optim_results = None; st.session_state.excel_bytes = None
         add_log_message("info", "="*20 + " Starting Optimization " + "="*20)
@@ -962,10 +1061,10 @@ else:
 
             selected_substrate = st.session_state.substrate_choice; substrate_min_limit = get_substrate_min_lambda(selected_substrate)
             if effective_lambda_min < substrate_min_limit:
-                  add_log_message("warning", f"Specified Min Lambda ({effective_lambda_min:.1f} nm) is below minimum for {selected_substrate} ({substrate_min_limit:.1f} nm). Adjusting Min Lambda to substrate limit.")
-                  effective_lambda_min = substrate_min_limit; st.session_state.config_lambda_min = f"{effective_lambda_min:.1f}"
-                  if effective_lambda_min >= effective_lambda_max: raise ValueError(f"Adjusted Min Lambda ({effective_lambda_min:.1f} nm) is now >= Max Lambda ({effective_lambda_max:.1f} nm). Check configuration.")
-                  st.rerun()
+                add_log_message("warning", f"Specified Min Lambda ({effective_lambda_min:.1f} nm) is below minimum for {selected_substrate} ({substrate_min_limit:.1f} nm). Adjusting Min Lambda to substrate limit.")
+                effective_lambda_min = substrate_min_limit; st.session_state.config_lambda_min = f"{effective_lambda_min:.1f}"
+                if effective_lambda_min >= effective_lambda_max: raise ValueError(f"Adjusted Min Lambda ({effective_lambda_min:.1f} nm) is now >= Max Lambda ({effective_lambda_max:.1f} nm). Check configuration.")
+                st.rerun()
 
             add_log_message("info", f"Using optimization range: [{effective_lambda_min:.1f}, {effective_lambda_max:.1f}] nm")
             current_target_type = st.session_state.target_type; target_type_flag = 0 if current_target_type == 'T_norm' else 1
@@ -1028,15 +1127,16 @@ else:
                         is_best = False
                         if optim_iteration_count[0] % display_freq == 0 or optim_iteration_count[0] == 1:
                             try:
-                                 current_fun = objective_func_spline_fixed_knots(xk, *fixed_args)
-                                 if not np.isfinite(current_fun): current_fun = np.inf
-                                 if current_fun < optim_callback_best_mse[0]:
-                                     optim_callback_best_mse[0] = current_fun; is_best = True
+                                current_fun = objective_func_spline_fixed_knots(xk, *fixed_args)
+                                if not np.isfinite(current_fun): current_fun = np.inf
+                                if current_fun < optim_callback_best_mse[0]:
+                                    optim_callback_best_mse[0] = current_fun; is_best = True
 
-                                 mse_val = optim_callback_best_mse[0]
-                                 status_text.info(f"Iteration: {optim_iteration_count[0]} | Best MSE: {mse_val:.4e}", icon="⏳")
-                                 if is_best: add_log_message("info", f"Iter: {optim_iteration_count[0]}, New Best MSE: {mse_val:.4e}")
-                                 else: add_log_message("info", f"Iter: {optim_iteration_count[0]}, Current MSE: {current_fun:.4e}, Best MSE: {mse_val:.4e}")
+                                mse_val = optim_callback_best_mse[0]
+                                status_text.info(f"Iteration: {optim_iteration_count[0]} | Best MSE: {mse_val:.4e}", icon="⏳")
+                                # Log less frequently to avoid clutter
+                                # if is_best: add_log_message("info", f"Iter: {optim_iteration_count[0]}, New Best MSE: {mse_val:.4e}")
+                                # else: add_log_message("info", f"Iter: {optim_iteration_count[0]}, Current MSE: {current_fun:.4e}, Best MSE: {mse_val:.4e}")
                             except Exception as e_cb:
                                 add_log_message("warning", f"Error in callback at iter {optim_iteration_count[0]}: {e_cb}")
 
@@ -1081,12 +1181,12 @@ else:
 
                         valid_lambda_mask_for_calc = (current_target_lambda >= substrate_min_limit) & np.isfinite(current_target_lambda) & (current_target_lambda > 0)
                         if np.any(valid_lambda_mask_for_calc):
-                             n_final_array_recalc[valid_lambda_mask_for_calc] = n_spline_final(current_target_lambda[valid_lambda_mask_for_calc]);
-                             k_final_array_recalc[valid_lambda_mask_for_calc] = np.exp(log_k_spline_final(current_target_lambda[valid_lambda_mask_for_calc]))
+                            n_final_array_recalc[valid_lambda_mask_for_calc] = n_spline_final(current_target_lambda[valid_lambda_mask_for_calc]);
+                            k_final_array_recalc[valid_lambda_mask_for_calc] = np.exp(log_k_spline_final(current_target_lambda[valid_lambda_mask_for_calc]))
 
-                             n_final_array_recalc = np.clip(n_final_array_recalc, 1.0, N_KNOT_VALUE_BOUNDS[1]);
-                             k_final_array_recalc = np.clip(k_final_array_recalc, 0.0, math.exp(LOG_K_KNOT_VALUE_BOUNDS[1]))
-                             n_final_array_recalc[~np.isfinite(n_final_array_recalc)] = np.nan; k_final_array_recalc[~np.isfinite(k_final_array_recalc)] = np.nan
+                            n_final_array_recalc = np.clip(n_final_array_recalc, 1.0, N_KNOT_VALUE_BOUNDS[1]);
+                            k_final_array_recalc = np.clip(k_final_array_recalc, 0.0, math.exp(LOG_K_KNOT_VALUE_BOUNDS[1]))
+                            n_final_array_recalc[~np.isfinite(n_final_array_recalc)] = np.nan; k_final_array_recalc[~np.isfinite(k_final_array_recalc)] = np.nan
 
                         valid_nk_final_mask = np.isfinite(n_final_array_recalc) & np.isfinite(k_final_array_recalc); valid_nsub_mask_recalc = np.isfinite(nSub_target_array_recalc);
                         valid_indices_for_T_calc = np.where(valid_nk_final_mask & valid_nsub_mask_recalc)[0]
@@ -1200,11 +1300,12 @@ else:
                             knot_distrib_str_short = "1L2" if use_inv_lambda_sq_distrib else "1L"
                             safe_target_filename = "".join(c if c.isalnum() else "_" for c in st.session_state.target_filename_base.split('.')[0])[:20]
                             st.session_state.excel_filename = f"results_{safe_target_filename}_{num_knots_n}n{num_knots_k}k_{knot_distrib_str_short}_{current_target_type}_{selected_substrate.replace(' ','_')}_L{effective_lambda_min:.0f}-{effective_lambda_max:.0f}.xlsx"
-                            add_log_message("info", f"Excel data generated for download as '{st.session_state.excel_filename}'.")
+                            add_log_message("info", f"Excel data generated for emailing as '{st.session_state.excel_filename}'.")
                         except Exception as e_excel: add_log_message("error", f"Failed to generate Excel data in memory: {e_excel}"); st.error(f"Failed to generate Excel data: {e_excel}", icon="🚨"); st.session_state.excel_bytes = None
 
                     except Exception as e_optim: st.error(f"Optimization Error: An error occurred during optimization:\n{e_optim}", icon="🚨"); add_log_message("error", f"ERROR during optimization: {e_optim}"); traceback.print_exc()
 
+    # --- Results Display ---
     if st.session_state.optim_results:
         results = st.session_state.optim_results
         st.divider(); st.header("Optimization Results")
@@ -1222,6 +1323,7 @@ else:
             st.metric("Fit Quality Rating (in range)", "N/A")
 
         st.subheader("Result Plots")
+        # Plotting functions (Keep calls as before)
         fig_compare = plot_spectra_vs_target(
             res=results['final_spectra'],
             target=st.session_state.target_data,
@@ -1235,22 +1337,39 @@ else:
         fig_nk = plot_nk_final(results['best_params'], results['plot_lambda_array'])
         if fig_nk: st.pyplot(fig_nk)
 
+
         st.subheader("Result Data")
+        # --- Modified Section: Replace Download with Email Button ---
         if st.session_state.excel_bytes:
-            st.download_button(
-                label="💾 Download Results (.xlsx)",
-                data=st.session_state.excel_bytes,
-                file_name=st.session_state.excel_filename,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
+            user_email_addr = st.session_state.get('user_email')
+            if user_email_addr:
+                button_label = f"✉️ Email Results to Me ({user_email_addr}) (CC Admin)"
+                if st.button(button_label, use_container_width=True):
+                    with st.spinner("Sending email..."):
+                        success = send_results_email(
+                            st.session_state.excel_bytes,
+                            st.session_state.excel_filename
+                        )
+                    if success:
+                        st.toast(f"Results email sent successfully to {user_email_addr}!", icon="✅")
+                    else:
+                        st.toast("Failed to send results email.", icon="🚨") # Specific error logged/shown by function
+            else:
+                 st.warning("User email not found in session. Cannot email results.")
+
+        else:
+            st.info("Optimization results need to be generated before they can be emailed.")
+        # --- End of Modified Section ---
+
         with st.expander("Show Result Data Table (Full Range)"):
             if 'excel_export_data' in results:
                 st.dataframe(pd.DataFrame(results['excel_export_data']).set_index('lambda (nm)'))
             else: st.warning("Result data not available for display.")
 
+    # --- Log Display (Keep as before) ---
     display_log()
 
+    # --- Help Text (Keep as before) ---
     help_text_en = """
     User Manual - Optical Monolayer Optimizer (Streamlit Version)
 
@@ -1259,59 +1378,61 @@ else:
 
     Main Steps:
 
-    1.  **Configure Settings (Sidebar):**
+    1.  **Provide Your Email:** Enter your email address (and optionally name) on the initial screen. This email is used for usage tracking and to receive results if you request them later.
+    2.  **Configure Settings (Sidebar):**
         * **Substrate Material:** Choose the substrate from the dropdown. This affects the refractive index used in calculations and sets a minimum valid wavelength.
         * **Optimization Lambda Range:** Define the Min/Max wavelength (nm) for the optimization. This range must be within the range of your loaded file AND above the substrate's minimum valid wavelength. Values are automatically suggested after loading a file but can be adjusted. Check sidebar warnings.
         * **Advanced Optimization Settings (Optional):** Expand this section to fine-tune spline parameters (knots) and Differential Evolution algorithm settings (for advanced users). Defaults are usually reasonable.
         * **Reset Parameters:** Click this button in the sidebar to reset Lambda Range, Thickness Range, and Advanced Optimization settings to their defaults.
 
-    2.  **Select Target Type (Main Area):**
+    3.  **Select Target Type (Main Area):**
         * Choose whether your target data represents "Normalized Transmission" (T Norm (%)) or "Sample Transmission" (T Sample (%)).
         * *T Norm (%)* = (Transmission of the sample with layer) / (Transmission of the bare substrate) * 100
         * *T Sample (%)* = Transmission of the sample with layer * 100
         * The schema diagram updates to reflect the selected measurement configuration.
 
-    3.  **Load Target File (Main Area):**
+    4.  **Load Target File (Main Area):**
         * Click "Browse files" and select a **.csv** file containing your experimental data.
         * **Alternatively:** If no file is selected, the application will attempt to load a default file named `example.csv` if it exists in the same directory as the script.
         * **CSV Expected Format:**
             * First Line: Header (ignored). Data starts on the second line.
             * Columns: Column 1: Wavelength λ (nm), Column 2: Target value (T Norm or T Sample).
-            * **Separators/Encoding:** The app attempts to automatically detect common formats (comma/semicolon delimiters, period/comma decimals, UTF-8/Latin-1 encoding). Ensure your data is numeric.
+            * **Separators/Encoding:** The app attempts to automatically detect common formats (comma/semicolon/tab delimiters, period/comma decimals, UTF-8/Latin-1 encoding). Ensure your data is numeric.
         * Target values can be percentage (e.g., 95.5) or fraction (e.g., 0.955). The program attempts to detect this automatically (values > 5 are assumed to be %).
         * A plot of the loaded data (target vs. λ) appears after successful loading.
         * The filename, its valid wavelength range, and suggested optimization range in the sidebar are updated. Check the Log Messages expander at the bottom for details on loading.
 
-    4.  **Configure Thickness Range (Main Area):**
+    5.  **Configure Thickness Range (Main Area):**
         * Define the **Min/Max Thick (nm)** range for the monolayer thickness search. Ensure Min < Max.
 
-    5.  **Run Optimization (Main Area):**
+    6.  **Run Optimization (Main Area):**
         * Click the "▶ Run Optimization" button (enabled only after data is loaded).
         * A spinner indicates the process is running. Progress messages (Iteration/MSE) may appear below the button.
         * The Log Messages section at the bottom provides detailed information about the optimization steps.
         * This step performs the search for the best n(λ), k(λ), and thickness 'd' matching the target data within the specified range.
 
-    6.  **Analyze Results (Main Area - appears after optimization):**
+    7.  **Analyze Results (Main Area - appears after optimization):**
         * **Metrics:** Optimal Thickness, Final Mean Squared Error (MSE) within the optimization range, and a Fit Quality Rating (Excellent/Good/Fair/Poor based on points close to the target) are displayed.
         * **Result Plots:**
             * *Comparison Plot:* Compares target data (red dots) with the calculated spectrum (blue line) over the **full** wavelength range of the input file. The difference ΔT is shown on the right axis (green dotted line) *only within the optimization range*. The Fit Quality text box refers to the quality *within the optimization range*.
             * *Final n/k Plot:* Shows the optimal n(λ) (blue) and k(λ) (red, potentially log scale) curves and the calculated spline knot positions (circles/squares) *within the optimization range*.
         * **Result Data:**
-            * A "Download Results (.xlsx)" button appears to save a detailed Excel file containing parameters, n/k values, calculated spectra, and target data over the full range.
+            * An "Email Results to Me (CC Admin)" button appears. Clicking this sends a detailed Excel file containing parameters, n/k values, calculated spectra, and target data over the full range to your email address (the one you provided initially), with a copy to the administrator.
             * An expander ("Show Result Data Table") allows viewing the result data table directly in the app.
 
     Tips:
-    - If loading fails, check the CSV format (delimiters, decimals, numeric data) and review the Log Messages.
+    - If loading fails, check the CSV format (delimiters, decimals, numeric data, header row) and review the Log Messages.
     - Choose a realistic thickness range. A too-wide range might slow down optimization unnecessarily.
     - The optimization Lambda range (set in the sidebar) is crucial: it defines the data used for fitting AND must respect the substrate's physical limits. Check sidebar warnings.
     - A low MSE value and a good 'Fit Quality' indicate a successful fit *mathematically*.
     - **Crucially:** Visually inspect the Comparison Plot (does the blue line match the red dots well?) AND the n/k Plot (are the resulting n(λ) and k(λ) curves physically plausible for your material?). Sometimes a good mathematical fit yields unphysical optical constants.
     - If using parallel workers (`workers > 1` or `-1`), ensure your environment supports multiprocessing (may not work on all free Streamlit Cloud tiers).
-    - Ensure email credentials are correctly configured in Streamlit secrets for notifications to work. Use an App Password for services like Gmail.
-    """
+    - Ensure email credentials (for the *sender*) are correctly configured in Streamlit secrets for notifications and result emails to work. Use an App Password for services like Gmail.
+    """ # Updated help text
 
     with st.expander("Help / Instructions", expanded=False):
         st.markdown(help_text_en)
 
+    # Sidebar Footer (Keep as before)
     st.sidebar.markdown("---")
-    st.sidebar.info("Monolayer Optimizer v1.1 - Streamlit App adapted from original code by F. Lemarchand.")
+    st.sidebar.info("Monolayer Optimizer v1.2 - Streamlit App adapted from original code by F. Lemarchand.")
