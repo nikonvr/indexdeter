@@ -33,10 +33,12 @@ PI = np.pi
 HUGE_PENALTY = 1e30
 N_KNOT_VALUE_BOUNDS = (1.2, 4.0)
 LOG_K_KNOT_VALUE_BOUNDS = (math.log(1e-6), math.log(5.0))
-SUBSTRATE_LIST = ["SiO2", "N-BK7", "D263T eco", "Sapphire", "B270i"]
+# MODIFIED: Renamed Sapphire to Sapphire-fresnel
+SUBSTRATE_LIST = ["SiO2", "N-BK7", "D263T eco", "Sapphire-fresnel", "B270i"]
 SUBSTRATE_MIN_LAMBDA = {
     "SiO2": 230.0, "N-BK7": 400.0, "D263T eco": 360.0,
-    "Sapphire": 230.0, "B270i": 400.0,
+    # MODIFIED: Renamed key from Sapphire to Sapphire-fresnel
+    "Sapphire-fresnel": 230.0, "B270i": 400.0,
 }
 
 # --- Utility and Calculation Functions ---
@@ -49,11 +51,11 @@ def sellmeier_calc(l_um_sq, B1, C1, B2, C2, B3, C3):
     n_sq_minus_1 = 0.0
     # Only add terms if C is non-zero and away from l_um_sq to avoid division by zero
     if abs(C1) > SMALL_EPSILON and abs(l_um_sq - C1) > SMALL_EPSILON:
-         n_sq_minus_1 += (B1 * l_um_sq / (l_um_sq - C1))
+          n_sq_minus_1 += (B1 * l_um_sq / (l_um_sq - C1))
     if abs(C2) > SMALL_EPSILON and abs(l_um_sq - C2) > SMALL_EPSILON:
-         n_sq_minus_1 += (B2 * l_um_sq / (l_um_sq - C2))
+          n_sq_minus_1 += (B2 * l_um_sq / (l_um_sq - C2))
     if abs(C3) > SMALL_EPSILON and abs(l_um_sq - C3) > SMALL_EPSILON:
-         n_sq_minus_1 += (B3 * l_um_sq / (l_um_sq - C3))
+          n_sq_minus_1 += (B3 * l_um_sq / (l_um_sq - C3))
     # Handle cases like B=0 or C=0 gracefully
     n_sq = n_sq_minus_1 + 1.0
     # Ensure physical plausibility (n^2 >= 0)
@@ -81,13 +83,14 @@ def get_n_substrate(substrate_id, wavelength_nm):
         if wavelength_nm < min_wl: return np.nan
         B1=0.90963095; C1=0.0047563071; B2=0.37290409; C2=0.01621977; B3=0.92110613; C3=105.77911
         return sellmeier_calc(l_um_sq, B1, C1, B2, C2, B3, C3)
-    elif substrate_id == 3: # Sapphire
+    # MODIFIED: Changed comment from Sapphire to Sapphire-fresnel
+    elif substrate_id == 3: # Sapphire-fresnel
         min_wl = 230.0
         if wavelength_nm < min_wl: return np.nan
         # --- NOUVEAUX COEFFICIENTS SAPPHIRE ---
         B1 = 2.003059; C1 = 0.011694
         B2 = 0.360392; C2 = 1000.0  # Note: C2 large means this term approaches B2*l_um_sq / l_um_sq = B2
-        B3 = 0.0;      C3 = 1.0     # B3=0 means this term is zero
+        B3 = 0.0;     C3 = 1.0     # B3=0 means this term is zero
         # -------------------------------------
         return sellmeier_calc(l_um_sq, B1, C1, B2, C2, B3, C3)
     elif substrate_id == 4: # B270i
@@ -172,10 +175,10 @@ def calculate_monolayer_lambda(l_val, nMono, thickness_nm, nSub_val):
 # MODIFIED: cache=True
 @numba.jit(nopython=True, cache=True)
 def calculate_total_error_numba(l_array, nSub_array, target_value_array,
-                                 weights_array, target_type_flag,
-                                 current_thickness_nm,
-                                 n_calc_array, k_calc_array,
-                                 n_min_bound, n_max_bound, k_min_bound, k_max_bound):
+                                weights_array, target_type_flag,
+                                current_thickness_nm,
+                                n_calc_array, k_calc_array,
+                                n_min_bound, n_max_bound, k_min_bound, k_max_bound):
     total_sq_error = 0.0
     points_calculated = 0
     for i in range(len(l_array)):
@@ -234,7 +237,7 @@ def calculate_total_error_numba(l_array, nSub_array, target_value_array,
             points_calculated += weights_array[i] # Accumulate total weight
         elif not np.isfinite(target_value_array[i]):
              # If target is NaN, just ignore this point (no error contribution)
-            pass
+             pass
         else:
              # If calc failed but target was valid -> HUGE PENALTY
              return HUGE_PENALTY
@@ -528,26 +531,26 @@ def plot_spectra_vs_target(res, target=None, best_params_info=None, model_str_ba
             # Interpolate target data onto the calculated lambda points for direct comparison
             try:
                 # Use linear interpolation, don't extrapolate outside target range
-                 target_y_perc_interp = np.interp(calc_l, target_l_valid, target_y_valid, left=np.nan, right=np.nan)
-                 delta_t_perc_full = calc_y_perc - target_y_perc_interp
+                target_y_perc_interp = np.interp(calc_l, target_l_valid, target_y_valid, left=np.nan, right=np.nan)
+                delta_t_perc_full = calc_y_perc - target_y_perc_interp
 
-                 # Plot delta only within the OPTIMIZATION range where comparison is meaningful
-                 valid_delta_mask = np.isfinite(delta_t_perc_full) & np.isfinite(calc_l)
-                 plot_mask_delta = (calc_l >= effective_lambda_min) & (calc_l <= effective_lambda_max) & valid_delta_mask
+                # Plot delta only within the OPTIMIZATION range where comparison is meaningful
+                valid_delta_mask = np.isfinite(delta_t_perc_full) & np.isfinite(calc_l)
+                plot_mask_delta = (calc_l >= effective_lambda_min) & (calc_l <= effective_lambda_max) & valid_delta_mask
 
-                 if np.any(plot_mask_delta):
-                     line_delta, = ax_delta.plot(calc_l[plot_mask_delta], delta_t_perc_full[plot_mask_delta], label='ΔT (%) [Calc - Target, Optim. Range]', linestyle=':', color='green', linewidth=1.2, zorder=-5); # Send to back
-                     # Adjust delta y-axis limits dynamically
-                     min_delta = np.min(delta_t_perc_full[plot_mask_delta]); max_delta = np.max(delta_t_perc_full[plot_mask_delta])
-                     padding = max(1.0, abs(max_delta - min_delta) * 0.1) if max_delta != min_delta else 1.0 # Min padding 1%
-                     ax_delta.set_ylim(min_delta - padding, max_delta + padding); ax_delta.set_ylabel('ΔT (%) [Optim. Range]', color='green'); ax_delta.tick_params(axis='y', labelcolor='green'); ax_delta.grid(True, axis='y', linestyle='-.', linewidth=0.5, color='lightgreen', alpha=0.6)
-                 else:
-                      # If no valid delta points in range, setup axis but maybe hide ticks?
-                     ax_delta.set_ylabel('ΔT (%) [Optim. Range]', color='green'); ax_delta.tick_params(axis='y', labelcolor='green'); ax_delta.set_yticks([]) # Hide y-ticks if no data to plot
+                if np.any(plot_mask_delta):
+                    line_delta, = ax_delta.plot(calc_l[plot_mask_delta], delta_t_perc_full[plot_mask_delta], label='ΔT (%) [Calc - Target, Optim. Range]', linestyle=':', color='green', linewidth=1.2, zorder=-5); # Send to back
+                    # Adjust delta y-axis limits dynamically
+                    min_delta = np.min(delta_t_perc_full[plot_mask_delta]); max_delta = np.max(delta_t_perc_full[plot_mask_delta])
+                    padding = max(1.0, abs(max_delta - min_delta) * 0.1) if max_delta != min_delta else 1.0 # Min padding 1%
+                    ax_delta.set_ylim(min_delta - padding, max_delta + padding); ax_delta.set_ylabel('ΔT (%) [Optim. Range]', color='green'); ax_delta.tick_params(axis='y', labelcolor='green'); ax_delta.grid(True, axis='y', linestyle='-.', linewidth=0.5, color='lightgreen', alpha=0.6)
+                else:
+                     # If no valid delta points in range, setup axis but maybe hide ticks?
+                    ax_delta.set_ylabel('ΔT (%) [Optim. Range]', color='green'); ax_delta.tick_params(axis='y', labelcolor='green'); ax_delta.set_yticks([]) # Hide y-ticks if no data to plot
 
             except Exception as e_interp:
-                 add_log_message("warning", f"Could not interpolate target for delta plot: {e_interp}")
-                 ax_delta.set_ylabel('ΔT (%) [Optim. Range]', color='green'); ax_delta.tick_params(axis='y', labelcolor='green'); ax_delta.set_yticks([])
+                add_log_message("warning", f"Could not interpolate target for delta plot: {e_interp}")
+                ax_delta.set_ylabel('ΔT (%) [Optim. Range]', color='green'); ax_delta.tick_params(axis='y', labelcolor='green'); ax_delta.set_yticks([])
 
 
         # --- Set X Limits ---
@@ -555,14 +558,14 @@ def plot_spectra_vs_target(res, target=None, best_params_info=None, model_str_ba
         file_lambda_min = st.session_state.get('lambda_min_file')
         file_lambda_max = st.session_state.get('lambda_max_file')
         if file_lambda_min is not None and file_lambda_max is not None and file_lambda_min < file_lambda_max:
-             ax.set_xlim(file_lambda_min, file_lambda_max)
+            ax.set_xlim(file_lambda_min, file_lambda_max)
         elif effective_lambda_min is not None and effective_lambda_max is not None and effective_lambda_min < effective_lambda_max:
-             ax.set_xlim(effective_lambda_min, effective_lambda_max) # Fallback to optim range
+            ax.set_xlim(effective_lambda_min, effective_lambda_max) # Fallback to optim range
         else:
-             # Fallback to min/max of calculated lambda if available
-             min_l_plot_fallback = np.nanmin(res.get('l', [300])); max_l_plot_fallback = np.nanmax(res.get('l', [1000]));
-             if np.isfinite(min_l_plot_fallback) and np.isfinite(max_l_plot_fallback) and min_l_plot_fallback < max_l_plot_fallback:
-                 ax.set_xlim(min_l_plot_fallback, max_l_plot_fallback)
+            # Fallback to min/max of calculated lambda if available
+            min_l_plot_fallback = np.nanmin(res.get('l', [300])); max_l_plot_fallback = np.nanmax(res.get('l', [1000]));
+            if np.isfinite(min_l_plot_fallback) and np.isfinite(max_l_plot_fallback) and min_l_plot_fallback < max_l_plot_fallback:
+                ax.set_xlim(min_l_plot_fallback, max_l_plot_fallback)
 
 
         # --- Combine Legends ---
@@ -704,6 +707,7 @@ def create_excel_file(results_data):
 
 
 # --- Function to Log User Info to CSV ---
+# MODIFIED: Signature remains the same, function logs whatever name/email it receives (can be empty)
 def log_user_access(timestamp, user_name, user_email):
     file_exists = os.path.isfile(USER_LOG_FILE)
     try:
@@ -757,6 +761,7 @@ if 'substrate_choice' not in st.session_state: st.session_state.substrate_choice
 if 'target_type' not in st.session_state: st.session_state.target_type = "T_norm"
 if 'last_loaded_source' not in st.session_state: st.session_state.last_loaded_source = None
 
+# MODIFIED: Keep track of submission, name, and email (which can be empty)
 if 'info_submitted' not in st.session_state:
     st.session_state.info_submitted = False
 if 'user_name' not in st.session_state:
@@ -778,36 +783,47 @@ if 'advanced_optim_params' not in st.session_state:
 st.set_page_config(page_title="Monolayer Optimizer", layout="wide")
 
 # --- User Info Form ---
+# MODIFIED: Changed logic to allow optional name/email
 if not st.session_state.info_submitted:
     st.header("Welcome!")
-    st.write("Please enter your name or your e-mail to continue.")
-    st.info("Privacy Notice: Your details are logged for usage tracking when you access the application.", icon="ℹ️")
+    # MODIFIED: Updated prompt text
+    st.write("Please provide your details (optional) to continue.")
+    st.info("Privacy Notice: Your details (if provided) are logged for usage tracking when you access the application.", icon="ℹ️")
 
     with st.form("info_form"):
+        # MODIFIED: Both inputs are optional
         name_input = st.text_input("Your name (optional)")
-        email_input = st.text_input("Your email address") # Made mandatory for access
+        email_input = st.text_input("Your email address (optional)")
 
         submitted = st.form_submit_button("Access Application")
 
         if submitted:
-            if email_input: # Check if email is provided
-                st.session_state.user_name = name_input
-                st.session_state.user_email = email_input
-                st.session_state.info_submitted = True
+            # MODIFIED: No mandatory check, just store whatever was entered
+            st.session_state.user_name = name_input.strip() if name_input else ""
+            st.session_state.user_email = email_input.strip() if email_input else ""
+            st.session_state.info_submitted = True
 
-                # --- Log user access to file ---
-                now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                log_success = log_user_access(now_str, name_input, email_input)
-                # Log message handled inside log_user_access or logger
-                # --- End log access ---
+            # --- Log user access to file (logs name and email, even if empty) ---
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            log_success = log_user_access(now_str, st.session_state.user_name, st.session_state.user_email)
+            # Log message handled inside log_user_access or logger
+            # --- End log access ---
 
-                st.rerun() # Rerun to show main app
-            else:
-                st.error("Please provide at least an email address.")
+            st.rerun() # Rerun to show main app
 
 # --- Main Application UI ---
 else:
-    user_display_name = st.session_state.user_name or st.session_state.user_email
+    # MODIFIED: Display name logic with fallback for anonymous access
+    user_name = st.session_state.user_name
+    user_email = st.session_state.user_email
+    if user_name and user_email:
+        user_display_name = f"{user_name} ({user_email})"
+    elif user_name:
+        user_display_name = user_name
+    elif user_email:
+         user_display_name = user_email
+    else:
+        user_display_name = "Guest" # Fallback if neither is provided
     st.success(f"Welcome, {user_display_name}!")
 
     st.title("Monolayer Optical Properties Optimizer")
@@ -820,7 +836,7 @@ else:
         The determination is achieved by fitting calculated optical transmission spectra (either normalized transmission $T_{norm}$ or direct sample transmission $T_{sample}$) to experimental target data provided by the user via a CSV file (or a default example file).
         The application uses cubic splines to model the dispersion of $n(\lambda)$ and $k(\lambda)$, and employs the differential evolution algorithm to find the optimal parameters (spline knot values and thickness $d$) that minimize the mean squared error between the calculated spectrum and the experimental target within a user-defined wavelength range, while respecting the physical limitations of the chosen substrate.
 
-        The tool outputs the determined dispersions of $n(\lambda)$ and $k(\lambda)$, the optimal thickness $d$, comparison plots, and an assessment of the fit quality. User access is logged.
+        The tool outputs the determined dispersions of $n(\lambda)$ and $k(\lambda)$, the optimal thickness $d$, comparison plots, and an assessment of the fit quality. User access is logged (even if details are not provided).
 
         ---
         *Developed by Fabien Lemarchand.*
@@ -978,7 +994,7 @@ else:
                     st.session_state.optim_results = None
             else:
                  # Only show warning once if default is missing
-                if st.session_state.last_loaded_source != "DEFAULT_NOT_FOUND":
+                 if st.session_state.last_loaded_source != "DEFAULT_NOT_FOUND":
                     add_log_message("error", f"Default file '{default_file_path}' not found. Please upload a file.")
                     st.warning(f"Default file '{default_file_path}' not found. Please upload a file.", icon="⚠️")
                     st.session_state.last_loaded_source = "DEFAULT_NOT_FOUND"
@@ -1126,9 +1142,9 @@ else:
                  st.success(f"Loaded: {st.session_state.target_filename_base} {file_source_msg} (Type: {st.session_state.target_type})", icon="✅")
                  # Display the plot stored in session state
                  if 'fig_target_plot' in st.session_state and st.session_state.fig_target_plot is not None:
-                    st.pyplot(st.session_state.fig_target_plot)
+                     st.pyplot(st.session_state.fig_target_plot)
                  else:
-                     # This shouldn't happen if loading was successful, but as a fallback:
+                      # This shouldn't happen if loading was successful, but as a fallback:
                      st.warning("Target data loaded, but plot could not be generated.", icon="⚠️")
         elif st.session_state.last_loaded_source != "DEFAULT_NOT_FOUND": # Avoid showing if default wasn't found
              st.info("Upload a CSV target file or ensure 'example.csv' is present for default loading.")
@@ -1300,14 +1316,14 @@ else:
 
                     # --- Configure and Run Differential Evolution ---
                     de_args = {
-                        'func': objective_func_spline_fixed_knots, 'bounds': parameter_bounds, 'args': fixed_args,
-                        'strategy': adv_params['strategy'], 'maxiter': adv_params['maxiter'], 'popsize': adv_params['pop_size'],
-                        'tol': adv_params['tol'], 'atol': adv_params['atol'], 'mutation': (adv_params['mutation_min'], adv_params['mutation_max']),
-                        'recombination': adv_params['recombination'], 'polish': adv_params['polish'], 'updating': adv_params['updating'],
-                        'workers': adv_params['workers'], # Use value from advanced params (could be -1, 1, or >1)
-                        'disp': False, # Don't print to console, use callback
-                        'callback': optimization_callback_simple_log
-                       }
+                         'func': objective_func_spline_fixed_knots, 'bounds': parameter_bounds, 'args': fixed_args,
+                         'strategy': adv_params['strategy'], 'maxiter': adv_params['maxiter'], 'popsize': adv_params['pop_size'],
+                         'tol': adv_params['tol'], 'atol': adv_params['atol'], 'mutation': (adv_params['mutation_min'], adv_params['mutation_max']),
+                         'recombination': adv_params['recombination'], 'polish': adv_params['polish'], 'updating': adv_params['updating'],
+                         'workers': adv_params['workers'], # Use value from advanced params (could be -1, 1, or >1)
+                         'disp': False, # Don't print to console, use callback
+                         'callback': optimization_callback_simple_log
+                         }
 
                     try:
                         with st.spinner("Optimization running... Please wait."):
@@ -1341,14 +1357,14 @@ else:
                         # Mask for where n/k can be calculated (spline eval)
                         valid_lambda_mask_for_calc = (current_target_lambda >= substrate_min_limit) & np.isfinite(current_target_lambda) & (current_target_lambda > 0)
                         if np.any(valid_lambda_mask_for_calc):
-                             lambda_to_eval = current_target_lambda[valid_lambda_mask_for_calc]
-                             n_final_array_recalc[valid_lambda_mask_for_calc] = n_spline_final(lambda_to_eval);
-                             k_final_array_recalc[valid_lambda_mask_for_calc] = np.exp(log_k_spline_final(lambda_to_eval))
-                             # Clip results to physical bounds after spline evaluation
-                             n_final_array_recalc = np.clip(n_final_array_recalc, 1.0, N_KNOT_VALUE_BOUNDS[1]); # n>=1
-                             k_final_array_recalc = np.clip(k_final_array_recalc, 0.0, math.exp(LOG_K_KNOT_VALUE_BOUNDS[1])) # k>=0
-                             # Ensure NaN propagation if spline fails
-                             n_final_array_recalc[~np.isfinite(n_final_array_recalc)] = np.nan; k_final_array_recalc[~np.isfinite(k_final_array_recalc)] = np.nan
+                            lambda_to_eval = current_target_lambda[valid_lambda_mask_for_calc]
+                            n_final_array_recalc[valid_lambda_mask_for_calc] = n_spline_final(lambda_to_eval);
+                            k_final_array_recalc[valid_lambda_mask_for_calc] = np.exp(log_k_spline_final(lambda_to_eval))
+                            # Clip results to physical bounds after spline evaluation
+                            n_final_array_recalc = np.clip(n_final_array_recalc, 1.0, N_KNOT_VALUE_BOUNDS[1]); # n>=1
+                            k_final_array_recalc = np.clip(k_final_array_recalc, 0.0, math.exp(LOG_K_KNOT_VALUE_BOUNDS[1])) # k>=0
+                            # Ensure NaN propagation if spline fails
+                            n_final_array_recalc[~np.isfinite(n_final_array_recalc)] = np.nan; k_final_array_recalc[~np.isfinite(k_final_array_recalc)] = np.nan
 
 
                         # Calculate T_stack and T_norm where possible
@@ -1356,19 +1372,19 @@ else:
                         valid_indices_for_T_calc = np.where(valid_nk_final_mask & valid_nsub_mask_recalc)[0]
 
                         for i in valid_indices_for_T_calc:
-                             l_val = current_target_lambda[i]; nMono_val = n_final_array_recalc[i] - 1j * k_final_array_recalc[i]; nSub_val = nSub_target_array_full[i]
-                             try:
-                                 # Calculate T_stack and T_sub
-                                 _, Ts_stack_calc, _ = calculate_monolayer_lambda(l_val, nMono_val, optimal_thickness_nm, nSub_val); _, Ts_sub_calc, _ = calculate_monolayer_lambda(l_val, 1.0 + 0j, 0.0, nSub_val)
-                                 # Store T_stack if valid
-                                 if np.isfinite(Ts_stack_calc): T_stack_final_calc[i] = np.clip(Ts_stack_calc, 0.0, 1.0)
-                                 # Calculate and store T_norm if possible
-                                 T_norm_calc = np.nan
-                                 if np.isfinite(Ts_sub_calc):
-                                     if Ts_sub_calc > SMALL_EPSILON: T_norm_calc = Ts_stack_calc / Ts_sub_calc
-                                     elif abs(Ts_stack_calc) < SMALL_EPSILON : T_norm_calc = 0.0
-                                 if np.isfinite(T_norm_calc): T_norm_final_calc[i] = np.clip(T_norm_calc, 0.0, 2.0)
-                             except Exception: pass # Ignore errors in single point calculation during recalc
+                            l_val = current_target_lambda[i]; nMono_val = n_final_array_recalc[i] - 1j * k_final_array_recalc[i]; nSub_val = nSub_target_array_full[i]
+                            try:
+                                # Calculate T_stack and T_sub
+                                _, Ts_stack_calc, _ = calculate_monolayer_lambda(l_val, nMono_val, optimal_thickness_nm, nSub_val); _, Ts_sub_calc, _ = calculate_monolayer_lambda(l_val, 1.0 + 0j, 0.0, nSub_val)
+                                # Store T_stack if valid
+                                if np.isfinite(Ts_stack_calc): T_stack_final_calc[i] = np.clip(Ts_stack_calc, 0.0, 1.0)
+                                # Calculate and store T_norm if possible
+                                T_norm_calc = np.nan
+                                if np.isfinite(Ts_sub_calc):
+                                    if Ts_sub_calc > SMALL_EPSILON: T_norm_calc = Ts_stack_calc / Ts_sub_calc
+                                    elif abs(Ts_stack_calc) < SMALL_EPSILON : T_norm_calc = 0.0
+                                if np.isfinite(T_norm_calc): T_norm_final_calc[i] = np.clip(T_norm_calc, 0.0, 2.0)
+                            except Exception: pass # Ignore errors in single point calculation during recalc
 
 
                         # --- Calculate Final MSE and Quality IN OPTIMIZATION RANGE ---
@@ -1378,20 +1394,20 @@ else:
 
                         recalc_mse_final = np.nan; percent_good_fit = np.nan; quality_label = "N/A"; mse_pts_count = np.sum(combined_valid_mask_for_mse)
                         if mse_pts_count > 0 :
-                             recalc_mse_final = np.mean((calc_value_for_mse[combined_valid_mask_for_mse] - current_target_value[combined_valid_mask_for_mse])**2);
-                             # Quality assessment based on absolute difference within the opt range
-                             abs_delta = np.abs(calc_value_for_mse[combined_valid_mask_for_mse] - current_target_value[combined_valid_mask_for_mse]); delta_threshold = 0.0025 # Threshold = 0.25%
-                             points_below_threshold = np.sum(abs_delta < delta_threshold);
-                             percent_good_fit = (points_below_threshold / mse_pts_count) * 100.0
-                             # Assign quality label
-                             if percent_good_fit >= 90: quality_label = "Excellent";
-                             elif percent_good_fit >= 70: quality_label = "Good";
-                             elif percent_good_fit >= 50: quality_label = "Fair";
-                             else: quality_label = "Poor"
-                             add_log_message("info", f"  Final MSE ({current_target_type}, {mse_pts_count} pts in range): {recalc_mse_final:.4e}"); add_log_message("info", "-"*20 + " Fit Quality " + "-"*20)
-                             add_log_message("info", f"  Range [{effective_lambda_min:.1f}-{effective_lambda_max:.1f}] nm, {mse_pts_count} valid pts"); add_log_message("info", f"  Points with |delta| < {delta_threshold*100:.2f}% : {percent_good_fit:.1f}% ({points_below_threshold}/{mse_pts_count})"); add_log_message("info", f"  -> Rating: {quality_label}")
+                            recalc_mse_final = np.mean((calc_value_for_mse[combined_valid_mask_for_mse] - current_target_value[combined_valid_mask_for_mse])**2);
+                            # Quality assessment based on absolute difference within the opt range
+                            abs_delta = np.abs(calc_value_for_mse[combined_valid_mask_for_mse] - current_target_value[combined_valid_mask_for_mse]); delta_threshold = 0.0025 # Threshold = 0.25%
+                            points_below_threshold = np.sum(abs_delta < delta_threshold);
+                            percent_good_fit = (points_below_threshold / mse_pts_count) * 100.0
+                            # Assign quality label
+                            if percent_good_fit >= 90: quality_label = "Excellent";
+                            elif percent_good_fit >= 70: quality_label = "Good";
+                            elif percent_good_fit >= 50: quality_label = "Fair";
+                            else: quality_label = "Poor"
+                            add_log_message("info", f"  Final MSE ({current_target_type}, {mse_pts_count} pts in range): {recalc_mse_final:.4e}"); add_log_message("info", "-"*20 + " Fit Quality " + "-"*20)
+                            add_log_message("info", f"  Range [{effective_lambda_min:.1f}-{effective_lambda_max:.1f}] nm, {mse_pts_count} valid pts"); add_log_message("info", f"  Points with |delta| < {delta_threshold*100:.2f}% : {percent_good_fit:.1f}% ({points_below_threshold}/{mse_pts_count})"); add_log_message("info", f"  -> Rating: {quality_label}")
                         else:
-                             add_log_message("warning", f"Cannot recalculate Final MSE or Fit Quality for range [{effective_lambda_min:.1f}-{effective_lambda_max:.1f}] nm. No valid points found after recalculation.")
+                            add_log_message("warning", f"Cannot recalculate Final MSE or Fit Quality for range [{effective_lambda_min:.1f}-{effective_lambda_max:.1f}] nm. No valid points found after recalculation.")
                         add_log_message("info", "-" * 50)
 
 
@@ -1414,19 +1430,19 @@ else:
                             'model_str_base': "Spline Fit",
                             # Data for table display (full range)
                             'result_data_table': {
-                                'lambda (nm)': current_target_lambda,
-                                f'n (Spline Fit ({num_knots_n}n{num_knots_k}k))': n_final_array_recalc,
-                                f'k (Spline Fit ({num_knots_n}n{num_knots_k}k))': k_final_array_recalc,
-                                'Thickness (nm)': np.full_like(current_target_lambda, optimal_thickness_nm), # Constant value
-                                f'n Substrate ({selected_substrate})': nSub_target_array_full,
-                                f'Target {current_target_type} (%) (Used)': np.where(mask_used_in_optimization, current_target_value * 100.0, np.nan), # Show only target used
-                                f'Target {current_target_type} (%) (Full File)': current_target_value * 100.0, # Show original full target
-                                'Calc T (%)': T_stack_final_calc * 100.0,
-                                'Calc T Norm (%)': T_norm_final_calc * 100.0,
-                                'Delta T (%)': (T_stack_final_calc - current_target_value)*100.0 if current_target_type == 'T' else np.nan,
-                                'Delta T Norm (%)': (T_norm_final_calc - current_target_value)*100.0 if current_target_type == 'T_norm' else np.nan,
-                             }
-                           }
+                                 'lambda (nm)': current_target_lambda,
+                                 f'n (Spline Fit ({num_knots_n}n{num_knots_k}k))': n_final_array_recalc,
+                                 f'k (Spline Fit ({num_knots_n}n{num_knots_k}k))': k_final_array_recalc,
+                                 'Thickness (nm)': np.full_like(current_target_lambda, optimal_thickness_nm), # Constant value
+                                 f'n Substrate ({selected_substrate})': nSub_target_array_full,
+                                 f'Target {current_target_type} (%) (Used)': np.where(mask_used_in_optimization, current_target_value * 100.0, np.nan), # Show only target used
+                                 f'Target {current_target_type} (%) (Full File)': current_target_value * 100.0, # Show original full target
+                                 'Calc T (%)': T_stack_final_calc * 100.0,
+                                 'Calc T Norm (%)': T_norm_final_calc * 100.0,
+                                 'Delta T (%)': (T_stack_final_calc - current_target_value)*100.0 if current_target_type == 'T' else np.nan,
+                                 'Delta T Norm (%)': (T_norm_final_calc - current_target_value)*100.0 if current_target_type == 'T_norm' else np.nan,
+                              }
+                            }
 
                         # --- Removed Excel file generation block ---
 
@@ -1500,6 +1516,7 @@ else:
     display_log()
 
     # --- Help Text ---
+    # MODIFIED: Updated Step 1 in help text
     help_text_en = """
     User Manual - Optical Monolayer Optimizer (Streamlit Version)
 
@@ -1508,7 +1525,7 @@ else:
 
     Main Steps:
 
-    1.  **Provide Your Email:** Enter your email address (and optionally name) on the initial screen. This email is logged for usage tracking.
+    1.  **Provide Your Details (Optional):** Enter your name and/or email address on the initial screen. These details (if provided) are logged for usage tracking. You can proceed without entering any details.
     2.  **Configure Settings (Sidebar):**
         * **Substrate Material:** Choose the substrate. The valid wavelength range depends on this.
         * **Optimization Lambda Range:** Define the Min/Max wavelength (nm) for the fitting process. Must be within file range and substrate valid range.
@@ -1535,7 +1552,7 @@ else:
             * Comparison plot: Target data (points), Calculated spectrum (line), and Delta (Calc-Target, dashed line on right axis, shown *only* within optimization range).
             * Final n/k plot: Optimized n (blue line) and k (red dashed line) with knot positions marked.
         * **Result Data:** An expander ("Show Result Data Table") allows viewing the calculated n, k, T values alongside target data for the full wavelength range of the input file.
-    8.  **User Access Log:** An expander ("Show User Access Log") displays a list of users who have accessed the application (timestamp, name, email).
+    8.  **User Access Log:** An expander ("Show User Access Log") displays a list of users who have accessed the application (timestamp, name, email - name/email may be blank).
 
     Tips:
     - Check CSV format (header, columns, delimiter, decimal) and Log Messages if loading fails.
