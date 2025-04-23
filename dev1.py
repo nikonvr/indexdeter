@@ -604,7 +604,7 @@ default_advanced_params = {
     'num_knots_n': 6, 'num_knots_k': 6, 'use_inv_lambda_sq_distrib': False,
     'pop_size': 20, 'maxiter': 1500, 'tol': 0.001, 'atol': 0.0,
     'mutation_min': 0.5, 'mutation_max': 1.2, 'recombination': 0.8,
-    'strategy': 'best1bin', 'polish': True, 'updating': 'deferred', 'workers': -1
+    'strategy': 'best1bin', 'polish': True, 'updating': 'deferred', 'workers': 1
 }
 
 def init_session_state():
@@ -753,7 +753,7 @@ else:
                 adv_params['strategy'] = st.selectbox("DE Strategy", options=strategy_options, index=strategy_options.index(adv_params['strategy']), key="adv_strat")
                 updating_options = ['immediate', 'deferred']
                 adv_params['updating'] = st.selectbox("Updating Mode", options=updating_options, index=updating_options.index(adv_params['updating']), key="adv_update")
-                adv_params['workers'] = st.number_input("Parallel Workers (-1=Auto)", min_value=-1, value=adv_params['workers'], step=1, key="adv_work", help="Uses CPU cores. Set to 1 if errors occur.")
+                adv_params['workers'] = st.number_input("Parallel Workers (1=Off)", min_value=1, value=adv_params['workers'], step=1, key="adv_work", help="Default=1 (recommended). Using >1 may cause errors.")
 
         st.divider()
         if st.button("🔄 Reset Configuration Parameters", key="reset_cfg"):
@@ -982,16 +982,22 @@ else:
                                            [LOG_K_KNOT_VALUE_BOUNDS] * num_knots_k
                         fixed_args = (num_knots_n, num_knots_k, target_lambda_opt, nSub_target_array_opt, target_value_opt, weights_array, target_type_flag, fixed_n_knot_lambdas, fixed_k_knot_lambdas)
 
-                        optim_iteration_count = [0]; optim_callback_best_mse = [np.inf]
+                        optim_iteration_count = [0]; optim_callback_best_mse = [np.inf]; optim_callback_best_thick = [np.nan]
                         def optimization_callback_simple_log(xk, convergence):
-                            optim_iteration_count[0] += 1; display_freq = 5
+                            optim_iteration_count[0] += 1; display_freq = 1
                             if optim_iteration_count[0] % display_freq == 0 or optim_iteration_count[0] == 1:
                                 try:
                                     current_fun = objective_func_spline_fixed_knots(xk, *fixed_args)
+                                    current_thick = xk[0]
                                     if not np.isfinite(current_fun): current_fun = np.inf
-                                    if current_fun < optim_callback_best_mse[0]: optim_callback_best_mse[0] = current_fun
+
+                                    if current_fun < optim_callback_best_mse[0]:
+                                        optim_callback_best_mse[0] = current_fun
+                                        optim_callback_best_thick[0] = current_thick
+
                                     mse_val = optim_callback_best_mse[0]
-                                    status_placeholder.info(f"Iteration: {optim_iteration_count[0]} | Best MSE: {mse_val:.4e}", icon="⏳")
+                                    thick_val = optim_callback_best_thick[0]
+                                    status_placeholder.info(f"Iteration: {optim_iteration_count[0]} | Best MSE: {mse_val:.4e} | Best Thick: {thick_val:.1f} nm", icon="⏳")
                                 except Exception as e_cb: add_log_message("warning", f"Callback Error iter {optim_iteration_count[0]}: {e_cb}")
 
                         de_args = { 'func': objective_func_spline_fixed_knots, 'bounds': parameter_bounds, 'args': fixed_args, 'strategy': adv_params['strategy'], 'maxiter': adv_params['maxiter'], 'popsize': adv_params['pop_size'], 'tol': adv_params['tol'], 'atol': adv_params['atol'], 'mutation': (adv_params['mutation_min'], adv_params['mutation_max']), 'recombination': adv_params['recombination'], 'polish': adv_params['polish'], 'updating': adv_params['updating'], 'workers': adv_params['workers'], 'disp': False, 'callback': optimization_callback_simple_log }
@@ -1140,11 +1146,11 @@ else:
         **Goal:** Determine optical properties (n, k) and thickness (d) of a monolayer on a known substrate by fitting calculated transmission to experimental target data.
 
         **Tabs:**
-        1.  **Configuration:** Set Substrate, Optimization Lambda Range, Thickness Range, and Advanced Parameters.
+        1.  **Configuration:** Set Substrate, Optimization Lambda Range, Thickness Range, and Advanced Parameters. (Workers default to 1).
         2.  **Target Data:** Select Target Type (T_norm/T_sample) and Upload a **.csv** file (λ (nm), Target Value). Schema and Target Plot are shown.
-        3.  **Run & Results:** Click "▶ Run Optimization". View Metrics, Result Plots (Comparison, n/k), and the Result Data Table.
+        3.  **Run & Results:** Click "▶ Run Optimization". View Metrics, Result Plots (Comparison, n/k), and the Result Data Table. Progress shows Iteration, Best MSE, and corresponding Thickness.
 
-        **Tips:** Check logs (below) for details/errors. Ensure λ range is valid. Use caching for plots where possible. Set `workers=1` in Advanced Settings if pickling errors occur.
+        **Tips:** Check logs (below) for details/errors. Ensure λ range is valid. Set `workers=1` (default) to avoid potential errors on some systems.
         """
         with st.expander("Help / Instructions", expanded=False):
             st.markdown(help_text_en)
@@ -1155,4 +1161,4 @@ else:
         elif user_name: user_display_name = user_name
         elif user_email: user_display_name = user_email
         else: user_display_name = "Guest"
-        st.caption(f"Monolayer Optimizer v1.4.3-tabs-opt - Welcome, {user_display_name}!")
+        st.caption(f"Monolayer Optimizer v1.4.4-tabs-opt - Welcome, {user_display_name}!")
