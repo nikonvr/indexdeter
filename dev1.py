@@ -1065,7 +1065,19 @@ else:
                                 'final_spectra': { 'l': current_target_lambda, 'T_stack_calc': T_stack_final_calc, 'T_norm_calc': T_norm_final_calc, 'MSE_Optimized': final_mse_display, 'MSE_Recalculated': recalc_mse_final, 'percent_good_fit': percent_good_fit, 'quality_label': quality_label },
                                 'best_params': { 'thickness_nm': optimal_thickness_nm, 'num_knots_n': num_knots_n, 'num_knots_k': num_knots_k, 'n_knot_values': n_values_opt_final, 'log_k_knot_values': log_k_values_opt_final, 'n_knot_lambdas': fixed_n_knot_lambdas, 'k_knot_lambdas': fixed_k_knot_lambdas, 'knot_distribution': "1/λ²" if use_inv_lambda_sq_distrib else "1/λ", 'substrate_name': selected_substrate, 'effective_lambda_min': effective_lambda_min, 'effective_lambda_max': effective_lambda_max },
                                 'plot_lambda_array': plot_lambda_array_final, 'model_str_base': "Spline Fit",
-                                'result_data_table': { 'lambda (nm)': current_target_lambda, f'n (Fit)': n_final_array_recalc, f'k (Fit)': k_final_array_recalc, 'Thickness (nm)': np.full_like(current_target_lambda, optimal_thickness_nm), f'n Sub ({selected_substrate})': nSub_target_array_full, f'Target {current_target_type} (%) (Used)': np.where(mask_used_in_optimization, current_target_value * 100.0, np.nan), f'Target {current_target_type} (%) (Full)': current_target_value * 100.0, 'Calc T (%)': T_stack_final_calc * 100.0, 'Calc T Norm (%)': T_norm_final_calc * 100.0, 'Delta T (%)': (T_stack_final_calc - current_target_value)*100.0 if current_target_type == 'T' else np.nan, 'Delta T Norm (%)': (T_norm_final_calc - current_target_value)*100.0 if current_target_type == 'T_norm' else np.nan, }
+                                'result_data_table': {
+                                    'lambda (nm)': current_target_lambda,
+                                    f'n (Fit)': n_final_array_recalc,
+                                    f'k (Fit)': k_final_array_recalc,
+                                    'Thickness (nm)': np.full_like(current_target_lambda, optimal_thickness_nm),
+                                    f'n Sub ({selected_substrate})': nSub_target_array_full,
+                                    f'Target {current_target_type} (%) (Used)': np.where(mask_used_in_optimization, current_target_value * 100.0, np.nan),
+                                    f'Target {current_target_type} (%) (Full)': current_target_value * 100.0,
+                                    'Calc T (%)': T_stack_final_calc * 100.0,
+                                    'Calc T Norm (%)': T_norm_final_calc * 100.0,
+                                    'Delta T (%)': (T_stack_final_calc - current_target_value)*100.0 if current_target_type == 'T' else np.full_like(current_target_lambda, np.nan),
+                                    'Delta T Norm (%)': (T_norm_final_calc - current_target_value)*100.0 if current_target_type == 'T_norm' else np.full_like(current_target_lambda, np.nan),
+                                }
                             }
                             st.session_state.optim_results = final_results_dict
 
@@ -1104,12 +1116,12 @@ else:
                 if 'result_data_table' in results:
                     try:
                         df_display = pd.DataFrame(results['result_data_table'])
-                        formatters = {col: "{:.4f}" for col in df_display.columns if df_display[col].dtype == 'float64'}
-                        percent_cols = [col for col in df_display.columns if '%' in col]; [formatters.update({pcol: "{:.2f}"}) for pcol in percent_cols]
-                        formatters['Thickness (nm)'] = "{:.3f}"
-                        st.dataframe(df_display.style.format(formatters, na_rep='-'), use_container_width=True)
-                    except Exception as e_df: st.warning(f"Could not display result table: {e_df}")
-                else: st.warning("Result data table not available.")
+                        st.dataframe(df_display, use_container_width=True)
+                    except Exception as e_df:
+                        st.warning(f"Could not display result table: {e_df}")
+                        add_log_message("error", f"Error displaying DataFrame: {e_df}")
+                else:
+                    st.warning("Result data table not available.")
         elif run_button and not valid_params:
              st.warning("Optimization could not run due to parameter errors. Please check configuration and logs.", icon="⚠️")
         elif not run_button and not st.session_state.optim_results:
