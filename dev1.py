@@ -409,14 +409,15 @@ def plot_spectra_vs_target(res, target=None, best_params_info=None, model_str_ba
         fig, ax = plt.subplots(1, 1, figsize=(9, 7)); ax_delta = ax.twinx()
         plt.style.use('seaborn-v0_8-whitegrid')
 
+        current_target_type = st.session_state.get('target_type', 'T_norm')
+
+        if current_target_type == 'T_norm':
+             comparison_label = 'Normalized T'; target_label_suffix = 'T Norm (%)'; calc_label_suffix = 'T Norm (%)'; y_label = 'Normalized Transmission (%)'; target_value_key = 'target_value'; calc_value_key = 'T_norm_calc'; y_lim_top = 110
+        else:
+             comparison_label = 'Sample T'; target_label_suffix = 'T (%)'; calc_label_suffix = 'T (%)'; y_label = 'Transmission (%)'; target_value_key = 'target_value'; calc_value_key = 'T_stack_calc'; y_lim_top = 105
+
         num_knots_n = best_params_info.get('num_knots_n', '?'); num_knots_k = best_params_info.get('num_knots_k', '?'); knot_distrib = best_params_info.get('knot_distribution', '?')
         model_str = f"{model_str_base} ({num_knots_n}n/{num_knots_k}k Knots, {knot_distrib})"
-        target_type = target.get('target_type', 'T_norm') if target else 'T_norm'
-
-        if target_type == 'T_norm':
-            comparison_label = 'Normalized T'; target_label_suffix = 'T Norm (%)'; calc_label_suffix = 'T Norm (%)'; y_label = 'Normalized Transmission (%)'; target_value_key = 'target_value'; calc_value_key = 'T_norm_calc'; y_lim_top = 110
-        else:
-            comparison_label = 'Sample T'; target_label_suffix = 'T (%)'; calc_label_suffix = 'T (%)'; y_label = 'Transmission (%)'; target_value_key = 'target_value'; calc_value_key = 'T_stack_calc'; y_lim_top = 105
 
         title_base=f'{comparison_label} Comparison ({model_str})'; params_list = []
         if best_params_info and 'thickness_nm' in best_params_info: params_list.append(f"d={best_params_info['thickness_nm']:.2f}nm")
@@ -459,16 +460,17 @@ def plot_spectra_vs_target(res, target=None, best_params_info=None, model_str_ba
                 plot_mask_delta = (calc_l >= effective_lambda_min) & (calc_l <= effective_lambda_max) & valid_delta_mask
 
                 if np.any(plot_mask_delta):
-                    line_delta, = ax_delta.plot(calc_l[plot_mask_delta], delta_t_perc_full[plot_mask_delta], label='ΔT (%) [Calc - Target, Optim. Range]', linestyle=':', color='green', linewidth=1.2, zorder=-5);
+                    delta_label = f"Δ{comparison_label[0]} (%) [Optim. Range]" # Delta T or Delta N
+                    line_delta, = ax_delta.plot(calc_l[plot_mask_delta], delta_t_perc_full[plot_mask_delta], label=delta_label, linestyle=':', color='green', linewidth=1.2, zorder=-5);
                     min_delta = np.min(delta_t_perc_full[plot_mask_delta]); max_delta = np.max(delta_t_perc_full[plot_mask_delta])
                     padding = max(1.0, abs(max_delta - min_delta) * 0.1) if max_delta != min_delta else 1.0
-                    ax_delta.set_ylim(min_delta - padding, max_delta + padding); ax_delta.set_ylabel('ΔT (%) [Optim. Range]', color='green'); ax_delta.tick_params(axis='y', labelcolor='green'); ax_delta.grid(True, axis='y', linestyle='-.', linewidth=0.5, color='lightgreen', alpha=0.6)
+                    ax_delta.set_ylim(min_delta - padding, max_delta + padding); ax_delta.set_ylabel(f"Δ{comparison_label[0]} (%)", color='green'); ax_delta.tick_params(axis='y', labelcolor='green'); ax_delta.grid(True, axis='y', linestyle='-.', linewidth=0.5, color='lightgreen', alpha=0.6)
                 else:
-                    ax_delta.set_ylabel('ΔT (%) [Optim. Range]', color='green'); ax_delta.tick_params(axis='y', labelcolor='green'); ax_delta.set_yticks([])
+                    ax_delta.set_ylabel(f"Δ{comparison_label[0]} (%)", color='green'); ax_delta.tick_params(axis='y', labelcolor='green'); ax_delta.set_yticks([])
 
             except Exception as e_interp:
                 add_log_message("warning", f"Could not interpolate target for delta plot: {e_interp}")
-                ax_delta.set_ylabel('ΔT (%) [Optim. Range]', color='green'); ax_delta.tick_params(axis='y', labelcolor='green'); ax_delta.set_yticks([])
+                ax_delta.set_ylabel(f"Δ{comparison_label[0]} (%)", color='green'); ax_delta.tick_params(axis='y', labelcolor='green'); ax_delta.set_yticks([])
 
         file_lambda_min = st.session_state.get('lambda_min_file')
         file_lambda_max = st.session_state.get('lambda_max_file')
@@ -1140,20 +1142,19 @@ else:
         display_log()
 
     with col_foot2:
-        help_text_en = """
-        **User Manual**
-
-        **Goal:** Determine optical properties (n, k) and thickness (d) of a monolayer on a known substrate by fitting calculated transmission to experimental target data.
-
-        **Tabs:**
-        1.  **Configuration:** Set Substrate, Optimization Lambda Range, Thickness Range, and Advanced Parameters. (Workers default to 1).
-        2.  **Target Data:** Select Target Type (T_norm/T_sample) and Upload a **.csv** file (λ (nm), Target Value). Schema and Target Plot are shown.
-        3.  **Run & Results:** Click "▶ Run Optimization". View Metrics, Result Plots (Comparison, n/k), and the Result Data Table. Progress shows Iteration, Best MSE, and corresponding Thickness.
-
-        **Tips:** Check logs (below) for details/errors. Ensure λ range is valid. Set `workers=1` (default) to avoid potential errors on some systems.
-        """
         with st.expander("Help / Instructions", expanded=False):
-            st.markdown(help_text_en)
+            st.markdown("""
+**User Manual**
+
+**Goal:** Determine optical properties (n, k) and thickness (d) of a monolayer on a known substrate by fitting calculated transmission to experimental target data.
+
+**Tabs:**
+1.  **Configuration:** Set Substrate, Optimization Lambda Range, Thickness Range, and Advanced Parameters. (Workers default to 1).
+2.  **Target Data:** Select Target Type (T_norm/T_sample) and Upload a **.csv** file (λ (nm), Target Value). Schema and Target Plot are shown.
+3.  **Run & Results:** Click "▶ Run Optimization". View Metrics, Result Plots (Comparison, n/k), and the Result Data Table. Progress shows Iteration, Best MSE, and corresponding Thickness.
+
+**Tips:** Check logs (below) for details/errors. Ensure λ range is valid. Set `workers=1` (default) to avoid potential errors on some systems.
+            """)
 
         user_name = st.session_state.user_name
         user_email = st.session_state.user_email
@@ -1161,4 +1162,4 @@ else:
         elif user_name: user_display_name = user_name
         elif user_email: user_display_name = user_email
         else: user_display_name = "Guest"
-        st.caption(f"Monolayer Optimizer v1.4.4-tabs-opt - Welcome, {user_display_name}!")
+        st.caption(f"Monolayer Optimizer v1.4.5-tabs-opt - Welcome, {user_display_name}!")
