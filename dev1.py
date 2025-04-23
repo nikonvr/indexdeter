@@ -329,7 +329,6 @@ def plot_target_only(target_data_to_plot, target_filename_base):
     plt.tight_layout()
     return fig_target
 
-@st.cache_resource
 def draw_schema_matplotlib(_target_type, _substrate_name):
     fig, ax = plt.subplots(figsize=(5.5, 1.5))
     fig.patch.set_alpha(0)
@@ -985,7 +984,7 @@ else:
 
                         optim_iteration_count = [0]; optim_callback_best_mse = [np.inf]
                         def optimization_callback_simple_log(xk, convergence):
-                            optim_iteration_count[0] += 1; display_freq = 50
+                            optim_iteration_count[0] += 1; display_freq = 5
                             if optim_iteration_count[0] % display_freq == 0 or optim_iteration_count[0] == 1:
                                 try:
                                     current_fun = objective_func_spline_fixed_knots(xk, *fixed_args)
@@ -1156,4 +1155,4 @@ else:
         elif user_name: user_display_name = user_name
         elif user_email: user_display_name = user_email
         else: user_display_name = "Guest"
-        st.caption(f"Monolayer Optimizer v1.4.2-tabs-opt - Welcome, {user_display_name}!")
+        st.caption(f"Monolayer Optimizer v1.4.3-tabs-opt - Welcome, {user_display_name}!")
