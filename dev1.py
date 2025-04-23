@@ -460,7 +460,7 @@ def plot_spectra_vs_target(res, target=None, best_params_info=None, model_str_ba
                 plot_mask_delta = (calc_l >= effective_lambda_min) & (calc_l <= effective_lambda_max) & valid_delta_mask
 
                 if np.any(plot_mask_delta):
-                    delta_label = f"Δ{comparison_label[0]} (%) [Optim. Range]" # Delta T or Delta N
+                    delta_label = f"Δ{comparison_label[0]} (%) [Optim. Range]"
                     line_delta, = ax_delta.plot(calc_l[plot_mask_delta], delta_t_perc_full[plot_mask_delta], label=delta_label, linestyle=':', color='green', linewidth=1.2, zorder=-5);
                     min_delta = np.min(delta_t_perc_full[plot_mask_delta]); max_delta = np.max(delta_t_perc_full[plot_mask_delta])
                     padding = max(1.0, abs(max_delta - min_delta) * 0.1) if max_delta != min_delta else 1.0
@@ -913,253 +913,297 @@ else:
 
     with tab3:
         st.header("Run Optimization & View Results")
+        col_run, col_help = st.columns([0.7, 0.3])
 
-        run_button = st.button("▶ Run Optimization", type="primary", use_container_width=True, disabled=(st.session_state.target_data is None))
-        status_placeholder = st.empty()
+        with col_run:
+            run_button = st.button("▶ Run Optimization", type="primary", use_container_width=True, disabled=(st.session_state.target_data is None))
+            status_placeholder = st.empty()
 
-        if run_button:
-            reset_log(); clear_results()
-            add_log_message("info", "="*20 + " Starting Optimization " + "="*20)
-            valid_params = True
-            try:
-                thickness_min = float(st.session_state.thickness_min); thickness_max = float(st.session_state.thickness_max)
-                if thickness_min > thickness_max or thickness_min < 0: raise ValueError("Invalid Thickness bounds.")
-                lambda_min_str = st.session_state.config_lambda_min; lambda_max_str = st.session_state.config_lambda_max
-                if lambda_min_str == "---" or lambda_max_str == "---": raise ValueError("Lambda Min/Max not set.")
-                effective_lambda_min = float(lambda_min_str); effective_lambda_max = float(lambda_max_str)
-                if effective_lambda_min <= 0 or effective_lambda_max <= 0: raise ValueError("Lambda Min/Max must be positive.")
-                if effective_lambda_min >= effective_lambda_max: raise ValueError("Lambda Min >= Max Lambda.")
-                if st.session_state.lambda_min_file is None: raise ValueError("Target file not loaded.")
-                if effective_lambda_min < st.session_state.lambda_min_file - SMALL_EPSILON or effective_lambda_max > st.session_state.lambda_max_file + SMALL_EPSILON: raise ValueError(f"Optim λ range [{effective_lambda_min:.1f}, {effective_lambda_max:.1f}] outside file range [{st.session_state.lambda_min_file:.1f}, {st.session_state.lambda_max_file:.1f}].")
-                selected_substrate = st.session_state.substrate_choice; substrate_min_limit = get_substrate_min_lambda(selected_substrate)
-                if effective_lambda_min < substrate_min_limit:
-                    add_log_message("warning", f"Min λ ({effective_lambda_min:.1f}) < Substrate limit ({substrate_min_limit:.1f}). Adjusting.")
-                    effective_lambda_min = substrate_min_limit; st.session_state.config_lambda_min = f"{effective_lambda_min:.1f}"
-                    if effective_lambda_min >= effective_lambda_max: raise ValueError(f"Adjusted Min λ ({effective_lambda_min:.1f}) >= Max λ ({effective_lambda_max:.1f}).")
-                    st.rerun()
-                add_log_message("info", f"Optim range: [{effective_lambda_min:.1f}, {effective_lambda_max:.1f}] nm")
-                current_target_type = st.session_state.target_type; target_type_flag = 0 if current_target_type == 'T_norm' else 1
-                substrate_id = SUBSTRATE_LIST.index(selected_substrate)
-                adv_params = st.session_state.advanced_optim_params; num_knots_n = adv_params['num_knots_n']; num_knots_k = adv_params['num_knots_k']; use_inv_lambda_sq_distrib = adv_params['use_inv_lambda_sq_distrib']
-                if num_knots_n < 2 or num_knots_k < 2: raise ValueError("Need >= 2 n/k knots.")
+            if run_button:
+                reset_log(); clear_results()
+                add_log_message("info", "="*20 + " Starting Optimization " + "="*20)
+                valid_params = True
+                try:
+                    thickness_min = float(st.session_state.thickness_min); thickness_max = float(st.session_state.thickness_max)
+                    if thickness_min > thickness_max or thickness_min < 0: raise ValueError("Invalid Thickness bounds.")
+                    lambda_min_str = st.session_state.config_lambda_min; lambda_max_str = st.session_state.config_lambda_max
+                    if lambda_min_str == "---" or lambda_max_str == "---": raise ValueError("Lambda Min/Max not set.")
+                    effective_lambda_min = float(lambda_min_str); effective_lambda_max = float(lambda_max_str)
+                    if effective_lambda_min <= 0 or effective_lambda_max <= 0: raise ValueError("Lambda Min/Max must be positive.")
+                    if effective_lambda_min >= effective_lambda_max: raise ValueError("Lambda Min >= Max Lambda.")
+                    if st.session_state.lambda_min_file is None: raise ValueError("Target file not loaded.")
+                    if effective_lambda_min < st.session_state.lambda_min_file - SMALL_EPSILON or effective_lambda_max > st.session_state.lambda_max_file + SMALL_EPSILON: raise ValueError(f"Optim λ range [{effective_lambda_min:.1f}, {effective_lambda_max:.1f}] outside file range [{st.session_state.lambda_min_file:.1f}, {st.session_state.lambda_max_file:.1f}].")
+                    selected_substrate = st.session_state.substrate_choice; substrate_min_limit = get_substrate_min_lambda(selected_substrate)
+                    if effective_lambda_min < substrate_min_limit:
+                        add_log_message("warning", f"Min λ ({effective_lambda_min:.1f}) < Substrate limit ({substrate_min_limit:.1f}). Adjusting.")
+                        effective_lambda_min = substrate_min_limit; st.session_state.config_lambda_min = f"{effective_lambda_min:.1f}"
+                        if effective_lambda_min >= effective_lambda_max: raise ValueError(f"Adjusted Min λ ({effective_lambda_min:.1f}) >= Max λ ({effective_lambda_max:.1f}).")
+                        st.rerun()
+                    add_log_message("info", f"Optim range: [{effective_lambda_min:.1f}, {effective_lambda_max:.1f}] nm")
+                    current_target_type = st.session_state.target_type; target_type_flag = 0 if current_target_type == 'T_norm' else 1
+                    substrate_id = SUBSTRATE_LIST.index(selected_substrate)
+                    adv_params = st.session_state.advanced_optim_params; num_knots_n = adv_params['num_knots_n']; num_knots_k = adv_params['num_knots_k']; use_inv_lambda_sq_distrib = adv_params['use_inv_lambda_sq_distrib']
+                    if num_knots_n < 2 or num_knots_k < 2: raise ValueError("Need >= 2 n/k knots.")
 
-            except (ValueError, TypeError, KeyError) as e_param: st.error(f"Parameter Error: {e_param}", icon="🚨"); add_log_message("error", f"Parameter Error: {e_param}"); valid_params = False
-            except Exception as e_unexpected: st.error(f"Setup Error: {e_unexpected}", icon="🚨"); add_log_message("error", f"Unexpected Setup Error: {e_unexpected}"); valid_params = False
+                except (ValueError, TypeError, KeyError) as e_param: st.error(f"Parameter Error: {e_param}", icon="🚨"); add_log_message("error", f"Parameter Error: {e_param}"); valid_params = False
+                except Exception as e_unexpected: st.error(f"Setup Error: {e_unexpected}", icon="🚨"); add_log_message("error", f"Unexpected Setup Error: {e_unexpected}"); valid_params = False
 
-            if valid_params:
-                current_target_lambda = st.session_state.target_data['lambda']; current_target_value = st.session_state.target_data['target_value']
-                lambda_range_mask = (current_target_lambda >= effective_lambda_min) & (current_target_lambda <= effective_lambda_max)
-                valid_target_mask_finite = np.isfinite(current_target_value) & np.isfinite(current_target_lambda)
-                nSub_target_array_full = np.array([get_n_substrate(substrate_id, l) for l in current_target_lambda])
-                valid_substrate_mask = np.isfinite(nSub_target_array_full)
-                mask_used_in_optimization = valid_target_mask_finite & lambda_range_mask & valid_substrate_mask
+                if valid_params:
+                    current_target_lambda = st.session_state.target_data['lambda']; current_target_value = st.session_state.target_data['target_value']
+                    lambda_range_mask = (current_target_lambda >= effective_lambda_min) & (current_target_lambda <= effective_lambda_max)
+                    valid_target_mask_finite = np.isfinite(current_target_value) & np.isfinite(current_target_lambda)
+                    nSub_target_array_full = np.array([get_n_substrate(substrate_id, l) for l in current_target_lambda])
+                    valid_substrate_mask = np.isfinite(nSub_target_array_full)
+                    mask_used_in_optimization = valid_target_mask_finite & lambda_range_mask & valid_substrate_mask
 
-                if not np.any(mask_used_in_optimization):
-                    st.error(f"No valid target points in range [{effective_lambda_min:.1f}, {effective_lambda_max:.1f}] with valid substrate index.", icon="🚨"); add_log_message("error", "No valid points for optimization.")
-                else:
-                    target_lambda_opt = current_target_lambda[mask_used_in_optimization]; target_value_opt = current_target_value[mask_used_in_optimization]; nSub_target_array_opt = nSub_target_array_full[mask_used_in_optimization]
-                    weights_array = np.ones_like(target_lambda_opt);
-                    add_log_message("info", f"Using {len(target_lambda_opt)} points for optimization.")
+                    if not np.any(mask_used_in_optimization):
+                        st.error(f"No valid target points in range [{effective_lambda_min:.1f}, {effective_lambda_max:.1f}] with valid substrate index.", icon="🚨"); add_log_message("error", "No valid points for optimization.")
+                    else:
+                        target_lambda_opt = current_target_lambda[mask_used_in_optimization]; target_value_opt = current_target_value[mask_used_in_optimization]; nSub_target_array_opt = nSub_target_array_full[mask_used_in_optimization]
+                        weights_array = np.ones_like(target_lambda_opt);
+                        add_log_message("info", f"Using {len(target_lambda_opt)} points for optimization.")
 
-                    fixed_n_knot_lambdas = np.array([], dtype=float); fixed_k_knot_lambdas = np.array([], dtype=float); knot_lam_min = effective_lambda_min; knot_lam_max = effective_lambda_max
-                    try:
-                        if use_inv_lambda_sq_distrib:
-                            inv_lambda_sq_min = 1.0 / (knot_lam_max**2); inv_lambda_sq_max = 1.0 / (knot_lam_min**2)
-                            if num_knots_n > 0: fixed_n_knot_lambdas = 1.0 / np.sqrt(np.linspace(inv_lambda_sq_min, inv_lambda_sq_max, num_knots_n) + SMALL_EPSILON)
-                            if num_knots_k > 0: fixed_k_knot_lambdas = 1.0 / np.sqrt(np.linspace(inv_lambda_sq_min, inv_lambda_sq_max, num_knots_k) + SMALL_EPSILON)
-                        else:
-                            inv_lambda_min = 1.0 / knot_lam_max; inv_lambda_max = 1.0 / knot_lam_min
-                            if num_knots_n > 0: fixed_n_knot_lambdas = 1.0 / (np.linspace(inv_lambda_min, inv_lambda_max, num_knots_n) + SMALL_EPSILON)
-                            if num_knots_k > 0: fixed_k_knot_lambdas = 1.0 / (np.linspace(inv_lambda_min, inv_lambda_max, num_knots_k) + SMALL_EPSILON)
-                        fixed_n_knot_lambdas = np.clip(np.sort(fixed_n_knot_lambdas), knot_lam_min + SMALL_EPSILON, knot_lam_max - SMALL_EPSILON)
-                        fixed_k_knot_lambdas = np.clip(np.sort(fixed_k_knot_lambdas), knot_lam_min + SMALL_EPSILON, knot_lam_max - SMALL_EPSILON)
-                        if len(np.unique(fixed_n_knot_lambdas)) < num_knots_n or len(np.unique(fixed_k_knot_lambdas)) < num_knots_k:
-                            add_log_message("warning", "Duplicate knots generated. Adjusting slightly.")
-                            fixed_n_knot_lambdas = np.linspace(knot_lam_min + SMALL_EPSILON, knot_lam_max - SMALL_EPSILON, num_knots_n); fixed_k_knot_lambdas = np.linspace(knot_lam_min + SMALL_EPSILON, knot_lam_max - SMALL_EPSILON, num_knots_k)
-                    except Exception as e_knot: st.error(f"Knot Error: {e_knot}", icon="🚨"); add_log_message("error", f"Knot calculation error: {e_knot}"); valid_params = False
-
-                    if valid_params:
-                        parameter_bounds = [(thickness_min, thickness_max)] + \
-                                           [N_KNOT_VALUE_BOUNDS] * num_knots_n + \
-                                           [LOG_K_KNOT_VALUE_BOUNDS] * num_knots_k
-                        fixed_args = (num_knots_n, num_knots_k, target_lambda_opt, nSub_target_array_opt, target_value_opt, weights_array, target_type_flag, fixed_n_knot_lambdas, fixed_k_knot_lambdas)
-
-                        optim_iteration_count = [0]; optim_callback_best_mse = [np.inf]; optim_callback_best_thick = [np.nan]
-                        def optimization_callback_simple_log(xk, convergence):
-                            optim_iteration_count[0] += 1; display_freq = 1
-                            if optim_iteration_count[0] % display_freq == 0 or optim_iteration_count[0] == 1:
-                                try:
-                                    current_fun = objective_func_spline_fixed_knots(xk, *fixed_args)
-                                    current_thick = xk[0]
-                                    if not np.isfinite(current_fun): current_fun = np.inf
-
-                                    if current_fun < optim_callback_best_mse[0]:
-                                        optim_callback_best_mse[0] = current_fun
-                                        optim_callback_best_thick[0] = current_thick
-
-                                    mse_val = optim_callback_best_mse[0]
-                                    thick_val = optim_callback_best_thick[0]
-                                    status_placeholder.info(f"Iteration: {optim_iteration_count[0]} | Best MSE: {mse_val:.4e} | Best Thick: {thick_val:.1f} nm", icon="⏳")
-                                except Exception as e_cb: add_log_message("warning", f"Callback Error iter {optim_iteration_count[0]}: {e_cb}")
-
-                        de_args = { 'func': objective_func_spline_fixed_knots, 'bounds': parameter_bounds, 'args': fixed_args, 'strategy': adv_params['strategy'], 'maxiter': adv_params['maxiter'], 'popsize': adv_params['pop_size'], 'tol': adv_params['tol'], 'atol': adv_params['atol'], 'mutation': (adv_params['mutation_min'], adv_params['mutation_max']), 'recombination': adv_params['recombination'], 'polish': adv_params['polish'], 'updating': adv_params['updating'], 'workers': adv_params['workers'], 'disp': False, 'callback': optimization_callback_simple_log }
-
+                        fixed_n_knot_lambdas = np.array([], dtype=float); fixed_k_knot_lambdas = np.array([], dtype=float); knot_lam_min = effective_lambda_min; knot_lam_max = effective_lambda_max
                         try:
-                            with st.spinner("Optimization running... Please wait."):
-                                start_time_opt = time.time();
-                                optim_result = scipy.optimize.differential_evolution(**de_args);
-                                end_time_opt = time.time()
-                            status_placeholder.success(f"Optimization finished in {end_time_opt - start_time_opt:.2f} s.", icon="✅"); add_log_message("info", f"Optimization finished in {end_time_opt - start_time_opt:.2f} s.")
-
-                            if not optim_result.success: add_log_message("warning", f"Optim did not converge: {optim_result.message}"); st.warning(f"Optim warning: {optim_result.message}", icon="⚠️")
-
-                            add_log_message("info", "-" * 50 + "\nBest result:");
-                            p_optimal = optim_result.x; final_objective_value = optim_result.fun; final_mse_display = final_objective_value if np.isfinite(final_objective_value) and final_objective_value < HUGE_PENALTY else np.nan
-                            add_log_message("info", f"  Optimal MSE (Objective): {final_mse_display:.4e}")
-                            optimal_thickness_nm = p_optimal[0]; add_log_message("info", f"  Optimal Thickness: {optimal_thickness_nm:.3f} nm");
-                            idx_start = 1; n_values_opt_final = p_optimal[idx_start : idx_start + num_knots_n]; idx_start += num_knots_n; log_k_values_opt_final = p_optimal[idx_start : idx_start + num_knots_k]
-
-                            n_spline_final = CubicSpline(fixed_n_knot_lambdas, n_values_opt_final, bc_type='natural', extrapolate=True); log_k_spline_final = CubicSpline(fixed_k_knot_lambdas, log_k_values_opt_final, bc_type='natural', extrapolate=True)
-                            n_final_array_recalc = np.full_like(current_target_lambda, np.nan); k_final_array_recalc = np.full_like(current_target_lambda, np.nan); T_stack_final_calc = np.full_like(current_target_lambda, np.nan); T_norm_final_calc = np.full_like(current_target_lambda, np.nan)
-                            valid_lambda_mask_for_calc = (current_target_lambda >= substrate_min_limit) & np.isfinite(current_target_lambda) & (current_target_lambda > 0)
-                            if np.any(valid_lambda_mask_for_calc):
-                                lambda_to_eval = current_target_lambda[valid_lambda_mask_for_calc]
-                                n_final_array_recalc[valid_lambda_mask_for_calc] = n_spline_final(lambda_to_eval);
-                                k_final_array_recalc[valid_lambda_mask_for_calc] = np.exp(log_k_spline_final(lambda_to_eval))
-                                n_final_array_recalc = np.clip(n_final_array_recalc, 1.0, N_KNOT_VALUE_BOUNDS[1]);
-                                k_final_array_recalc = np.clip(k_final_array_recalc, 0.0, math.exp(LOG_K_KNOT_VALUE_BOUNDS[1]))
-                                n_final_array_recalc[~np.isfinite(n_final_array_recalc)] = np.nan; k_final_array_recalc[~np.isfinite(k_final_array_recalc)] = np.nan
-                            valid_nk_final_mask = np.isfinite(n_final_array_recalc) & np.isfinite(k_final_array_recalc); valid_nsub_mask_recalc = np.isfinite(nSub_target_array_full);
-                            valid_indices_for_T_calc = np.where(valid_nk_final_mask & valid_nsub_mask_recalc)[0]
-                            for i in valid_indices_for_T_calc:
-                                l_val = current_target_lambda[i]; nMono_val = n_final_array_recalc[i] - 1j * k_final_array_recalc[i]; nSub_val = nSub_target_array_full[i]
-                                try:
-                                    _, Ts_stack_calc, _ = calculate_monolayer_lambda(l_val, nMono_val, optimal_thickness_nm, nSub_val); _, Ts_sub_calc, _ = calculate_monolayer_lambda(l_val, 1.0 + 0j, 0.0, nSub_val)
-                                    if np.isfinite(Ts_stack_calc): T_stack_final_calc[i] = np.clip(Ts_stack_calc, 0.0, 1.0)
-                                    T_norm_calc = np.nan
-                                    if np.isfinite(Ts_sub_calc):
-                                        if Ts_sub_calc > SMALL_EPSILON: T_norm_calc = Ts_stack_calc / Ts_sub_calc
-                                        elif abs(Ts_stack_calc) < SMALL_EPSILON : T_norm_calc = 0.0
-                                    if np.isfinite(T_norm_calc): T_norm_final_calc[i] = np.clip(T_norm_calc, 0.0, 2.0)
-                                except Exception: pass
-
-                            calc_value_for_mse = T_norm_final_calc if current_target_type == 'T_norm' else T_stack_final_calc;
-                            combined_valid_mask_for_mse = mask_used_in_optimization & np.isfinite(calc_value_for_mse)
-                            recalc_mse_final = np.nan; percent_good_fit = np.nan; quality_label = "N/A"; mse_pts_count = np.sum(combined_valid_mask_for_mse)
-                            if mse_pts_count > 0 :
-                                recalc_mse_final = np.mean((calc_value_for_mse[combined_valid_mask_for_mse] - current_target_value[combined_valid_mask_for_mse])**2);
-                                abs_delta = np.abs(calc_value_for_mse[combined_valid_mask_for_mse] - current_target_value[combined_valid_mask_for_mse]);
-                                delta_threshold = 0.0025
-                                points_below_threshold = np.sum(abs_delta < delta_threshold);
-                                percent_good_fit = (points_below_threshold / mse_pts_count) * 100.0
-
-                                if percent_good_fit >= 90:
-                                    quality_label = "Excellent"
-                                elif percent_good_fit >= 70:
-                                    quality_label = "Good"
-                                elif percent_good_fit >= 50:
-                                    quality_label = "Fair"
-                                else:
-                                    quality_label = "Poor"
-
-                                add_log_message("info", f"  Final MSE ({current_target_type}, {mse_pts_count} pts in range): {recalc_mse_final:.4e}\n" + "-"*20 + " Fit Quality " + "-"*20 + f"\n  Range [{effective_lambda_min:.1f}-{effective_lambda_max:.1f}] nm, {mse_pts_count} valid pts\n  Points |delta|<{delta_threshold*100:.2f}%: {percent_good_fit:.1f}% ({points_below_threshold}/{mse_pts_count})\n  -> Rating: {quality_label}")
+                            if use_inv_lambda_sq_distrib:
+                                inv_lambda_sq_min = 1.0 / (knot_lam_max**2); inv_lambda_sq_max = 1.0 / (knot_lam_min**2)
+                                if num_knots_n > 0: fixed_n_knot_lambdas = 1.0 / np.sqrt(np.linspace(inv_lambda_sq_min, inv_lambda_sq_max, num_knots_n) + SMALL_EPSILON)
+                                if num_knots_k > 0: fixed_k_knot_lambdas = 1.0 / np.sqrt(np.linspace(inv_lambda_sq_min, inv_lambda_sq_max, num_knots_k) + SMALL_EPSILON)
                             else:
-                                add_log_message("warning", f"Cannot recalculate Final MSE/Quality for range [{effective_lambda_min:.1f}-{effective_lambda_max:.1f}] nm.")
-                            add_log_message("info", "-" * 50)
+                                inv_lambda_min = 1.0 / knot_lam_max; inv_lambda_max = 1.0 / knot_lam_min
+                                if num_knots_n > 0: fixed_n_knot_lambdas = 1.0 / (np.linspace(inv_lambda_min, inv_lambda_max, num_knots_n) + SMALL_EPSILON)
+                                if num_knots_k > 0: fixed_k_knot_lambdas = 1.0 / (np.linspace(inv_lambda_min, inv_lambda_max, num_knots_k) + SMALL_EPSILON)
+                            fixed_n_knot_lambdas = np.clip(np.sort(fixed_n_knot_lambdas), knot_lam_min + SMALL_EPSILON, knot_lam_max - SMALL_EPSILON)
+                            fixed_k_knot_lambdas = np.clip(np.sort(fixed_k_knot_lambdas), knot_lam_min + SMALL_EPSILON, knot_lam_max - SMALL_EPSILON)
+                            if len(np.unique(fixed_n_knot_lambdas)) < num_knots_n or len(np.unique(fixed_k_knot_lambdas)) < num_knots_k:
+                                add_log_message("warning", "Duplicate knots generated. Adjusting slightly.")
+                                fixed_n_knot_lambdas = np.linspace(knot_lam_min + SMALL_EPSILON, knot_lam_max - SMALL_EPSILON, num_knots_n); fixed_k_knot_lambdas = np.linspace(knot_lam_min + SMALL_EPSILON, knot_lam_max - SMALL_EPSILON, num_knots_k)
+                        except Exception as e_knot: st.error(f"Knot Error: {e_knot}", icon="🚨"); add_log_message("error", f"Knot calculation error: {e_knot}"); valid_params = False
 
-                            plot_lambda_array_final = np.linspace(st.session_state.lambda_min_file, st.session_state.lambda_max_file, 500)
-                            final_results_dict = {
-                                'final_spectra': { 'l': current_target_lambda, 'T_stack_calc': T_stack_final_calc, 'T_norm_calc': T_norm_final_calc, 'MSE_Optimized': final_mse_display, 'MSE_Recalculated': recalc_mse_final, 'percent_good_fit': percent_good_fit, 'quality_label': quality_label },
-                                'best_params': { 'thickness_nm': optimal_thickness_nm, 'num_knots_n': num_knots_n, 'num_knots_k': num_knots_k, 'n_knot_values': n_values_opt_final, 'log_k_knot_values': log_k_values_opt_final, 'n_knot_lambdas': fixed_n_knot_lambdas, 'k_knot_lambdas': fixed_k_knot_lambdas, 'knot_distribution': "1/λ²" if use_inv_lambda_sq_distrib else "1/λ", 'substrate_name': selected_substrate, 'effective_lambda_min': effective_lambda_min, 'effective_lambda_max': effective_lambda_max },
-                                'plot_lambda_array': plot_lambda_array_final, 'model_str_base': "Spline Fit",
-                                'result_data_table': {
-                                    'lambda (nm)': current_target_lambda,
-                                    f'n (Fit)': n_final_array_recalc,
-                                    f'k (Fit)': k_final_array_recalc,
-                                    'Thickness (nm)': np.full_like(current_target_lambda, optimal_thickness_nm),
-                                    f'n Sub ({selected_substrate})': nSub_target_array_full,
-                                    f'Target {current_target_type} (%) (Used)': np.where(mask_used_in_optimization, current_target_value * 100.0, np.nan),
-                                    f'Target {current_target_type} (%) (Full)': current_target_value * 100.0,
-                                    'Calc T (%)': T_stack_final_calc * 100.0,
-                                    'Calc T Norm (%)': T_norm_final_calc * 100.0,
-                                    'Delta T (%)': (T_stack_final_calc - current_target_value)*100.0 if current_target_type == 'T' else np.full_like(current_target_lambda, np.nan),
-                                    'Delta T Norm (%)': (T_norm_final_calc - current_target_value)*100.0 if current_target_type == 'T_norm' else np.full_like(current_target_lambda, np.nan),
+                        if valid_params:
+                            parameter_bounds = [(thickness_min, thickness_max)] + \
+                                               [N_KNOT_VALUE_BOUNDS] * num_knots_n + \
+                                               [LOG_K_KNOT_VALUE_BOUNDS] * num_knots_k
+                            fixed_args = (num_knots_n, num_knots_k, target_lambda_opt, nSub_target_array_opt, target_value_opt, weights_array, target_type_flag, fixed_n_knot_lambdas, fixed_k_knot_lambdas)
+
+                            optim_iteration_count = [0]; optim_callback_best_mse = [np.inf]; optim_callback_best_thick = [np.nan]
+                            def optimization_callback_simple_log(xk, convergence):
+                                optim_iteration_count[0] += 1; display_freq = 1
+                                if optim_iteration_count[0] % display_freq == 0 or optim_iteration_count[0] == 1:
+                                    try:
+                                        current_fun = objective_func_spline_fixed_knots(xk, *fixed_args)
+                                        current_thick = xk[0]
+                                        if not np.isfinite(current_fun): current_fun = np.inf
+
+                                        if current_fun < optim_callback_best_mse[0]:
+                                            optim_callback_best_mse[0] = current_fun
+                                            optim_callback_best_thick[0] = current_thick
+
+                                        mse_val = optim_callback_best_mse[0]
+                                        thick_val = optim_callback_best_thick[0]
+                                        status_placeholder.info(f"Iteration: {optim_iteration_count[0]} | Best MSE: {mse_val:.4e} | Best Thick: {thick_val:.1f} nm", icon="⏳")
+                                    except Exception as e_cb: add_log_message("warning", f"Callback Error iter {optim_iteration_count[0]}: {e_cb}")
+
+                            de_args = { 'func': objective_func_spline_fixed_knots, 'bounds': parameter_bounds, 'args': fixed_args, 'strategy': adv_params['strategy'], 'maxiter': adv_params['maxiter'], 'popsize': adv_params['pop_size'], 'tol': adv_params['tol'], 'atol': adv_params['atol'], 'mutation': (adv_params['mutation_min'], adv_params['mutation_max']), 'recombination': adv_params['recombination'], 'polish': adv_params['polish'], 'updating': adv_params['updating'], 'workers': adv_params['workers'], 'disp': False, 'callback': optimization_callback_simple_log }
+
+                            try:
+                                with st.spinner("Optimization running... Please wait."):
+                                    start_time_opt = time.time();
+                                    optim_result = scipy.optimize.differential_evolution(**de_args);
+                                    end_time_opt = time.time()
+                                status_placeholder.success(f"Optimization finished in {end_time_opt - start_time_opt:.2f} s.", icon="✅"); add_log_message("info", f"Optimization finished in {end_time_opt - start_time_opt:.2f} s.")
+
+                                if not optim_result.success: add_log_message("warning", f"Optim did not converge: {optim_result.message}"); st.warning(f"Optim warning: {optim_result.message}", icon="⚠️")
+
+                                add_log_message("info", "-" * 50 + "\nBest result:");
+                                p_optimal = optim_result.x; final_objective_value = optim_result.fun; final_mse_display = final_objective_value if np.isfinite(final_objective_value) and final_objective_value < HUGE_PENALTY else np.nan
+                                add_log_message("info", f"  Optimal MSE (Objective): {final_mse_display:.4e}")
+                                optimal_thickness_nm = p_optimal[0]; add_log_message("info", f"  Optimal Thickness: {optimal_thickness_nm:.3f} nm");
+                                idx_start = 1; n_values_opt_final = p_optimal[idx_start : idx_start + num_knots_n]; idx_start += num_knots_n; log_k_values_opt_final = p_optimal[idx_start : idx_start + num_knots_k]
+
+                                n_spline_final = CubicSpline(fixed_n_knot_lambdas, n_values_opt_final, bc_type='natural', extrapolate=True); log_k_spline_final = CubicSpline(fixed_k_knot_lambdas, log_k_values_opt_final, bc_type='natural', extrapolate=True)
+                                n_final_array_recalc = np.full_like(current_target_lambda, np.nan); k_final_array_recalc = np.full_like(current_target_lambda, np.nan); T_stack_final_calc = np.full_like(current_target_lambda, np.nan); T_norm_final_calc = np.full_like(current_target_lambda, np.nan)
+                                valid_lambda_mask_for_calc = (current_target_lambda >= substrate_min_limit) & np.isfinite(current_target_lambda) & (current_target_lambda > 0)
+                                if np.any(valid_lambda_mask_for_calc):
+                                    lambda_to_eval = current_target_lambda[valid_lambda_mask_for_calc]
+                                    n_final_array_recalc[valid_lambda_mask_for_calc] = n_spline_final(lambda_to_eval);
+                                    k_final_array_recalc[valid_lambda_mask_for_calc] = np.exp(log_k_spline_final(lambda_to_eval))
+                                    n_final_array_recalc = np.clip(n_final_array_recalc, 1.0, N_KNOT_VALUE_BOUNDS[1]);
+                                    k_final_array_recalc = np.clip(k_final_array_recalc, 0.0, math.exp(LOG_K_KNOT_VALUE_BOUNDS[1]))
+                                    n_final_array_recalc[~np.isfinite(n_final_array_recalc)] = np.nan; k_final_array_recalc[~np.isfinite(k_final_array_recalc)] = np.nan
+                                valid_nk_final_mask = np.isfinite(n_final_array_recalc) & np.isfinite(k_final_array_recalc); valid_nsub_mask_recalc = np.isfinite(nSub_target_array_full);
+                                valid_indices_for_T_calc = np.where(valid_nk_final_mask & valid_nsub_mask_recalc)[0]
+                                for i in valid_indices_for_T_calc:
+                                    l_val = current_target_lambda[i]; nMono_val = n_final_array_recalc[i] - 1j * k_final_array_recalc[i]; nSub_val = nSub_target_array_full[i]
+                                    try:
+                                        _, Ts_stack_calc, _ = calculate_monolayer_lambda(l_val, nMono_val, optimal_thickness_nm, nSub_val); _, Ts_sub_calc, _ = calculate_monolayer_lambda(l_val, 1.0 + 0j, 0.0, nSub_val)
+                                        if np.isfinite(Ts_stack_calc): T_stack_final_calc[i] = np.clip(Ts_stack_calc, 0.0, 1.0)
+                                        T_norm_calc = np.nan
+                                        if np.isfinite(Ts_sub_calc):
+                                            if Ts_sub_calc > SMALL_EPSILON: T_norm_calc = Ts_stack_calc / Ts_sub_calc
+                                            elif abs(Ts_stack_calc) < SMALL_EPSILON : T_norm_calc = 0.0
+                                        if np.isfinite(T_norm_calc): T_norm_final_calc[i] = np.clip(T_norm_calc, 0.0, 2.0)
+                                    except Exception: pass
+
+                                calc_value_for_mse = T_norm_final_calc if current_target_type == 'T_norm' else T_stack_final_calc;
+                                combined_valid_mask_for_mse = mask_used_in_optimization & np.isfinite(calc_value_for_mse)
+                                recalc_mse_final = np.nan; percent_good_fit = np.nan; quality_label = "N/A"; mse_pts_count = np.sum(combined_valid_mask_for_mse)
+                                if mse_pts_count > 0 :
+                                    recalc_mse_final = np.mean((calc_value_for_mse[combined_valid_mask_for_mse] - current_target_value[combined_valid_mask_for_mse])**2);
+                                    abs_delta = np.abs(calc_value_for_mse[combined_valid_mask_for_mse] - current_target_value[combined_valid_mask_for_mse]);
+                                    delta_threshold = 0.0025
+                                    points_below_threshold = np.sum(abs_delta < delta_threshold);
+                                    percent_good_fit = (points_below_threshold / mse_pts_count) * 100.0
+
+                                    if percent_good_fit >= 90:
+                                        quality_label = "Excellent"
+                                    elif percent_good_fit >= 70:
+                                        quality_label = "Good"
+                                    elif percent_good_fit >= 50:
+                                        quality_label = "Fair"
+                                    else:
+                                        quality_label = "Poor"
+
+                                    add_log_message("info", f"  Final MSE ({current_target_type}, {mse_pts_count} pts in range): {recalc_mse_final:.4e}\n" + "-"*20 + " Fit Quality " + "-"*20 + f"\n  Range [{effective_lambda_min:.1f}-{effective_lambda_max:.1f}] nm, {mse_pts_count} valid pts\n  Points |delta|<{delta_threshold*100:.2f}%: {percent_good_fit:.1f}% ({points_below_threshold}/{mse_pts_count})\n  -> Rating: {quality_label}")
+                                else:
+                                    add_log_message("warning", f"Cannot recalculate Final MSE/Quality for range [{effective_lambda_min:.1f}-{effective_lambda_max:.1f}] nm.")
+                                add_log_message("info", "-" * 50)
+
+                                plot_lambda_array_final = np.linspace(st.session_state.lambda_min_file, st.session_state.lambda_max_file, 500)
+                                final_results_dict = {
+                                    'final_spectra': { 'l': current_target_lambda, 'T_stack_calc': T_stack_final_calc, 'T_norm_calc': T_norm_final_calc, 'MSE_Optimized': final_mse_display, 'MSE_Recalculated': recalc_mse_final, 'percent_good_fit': percent_good_fit, 'quality_label': quality_label },
+                                    'best_params': { 'thickness_nm': optimal_thickness_nm, 'num_knots_n': num_knots_n, 'num_knots_k': num_knots_k, 'n_knot_values': n_values_opt_final, 'log_k_knot_values': log_k_values_opt_final, 'n_knot_lambdas': fixed_n_knot_lambdas, 'k_knot_lambdas': fixed_k_knot_lambdas, 'knot_distribution': "1/λ²" if use_inv_lambda_sq_distrib else "1/λ", 'substrate_name': selected_substrate, 'effective_lambda_min': effective_lambda_min, 'effective_lambda_max': effective_lambda_max },
+                                    'plot_lambda_array': plot_lambda_array_final, 'model_str_base': "Spline Fit",
+                                    'result_data_table': {
+                                        'lambda (nm)': current_target_lambda,
+                                        f'n (Fit)': n_final_array_recalc,
+                                        f'k (Fit)': k_final_array_recalc,
+                                        'Thickness (nm)': np.full_like(current_target_lambda, optimal_thickness_nm),
+                                        f'n Sub ({selected_substrate})': nSub_target_array_full,
+                                        f'Target {current_target_type} (%) (Used)': np.where(mask_used_in_optimization, current_target_value * 100.0, np.nan),
+                                        f'Target {current_target_type} (%) (Full)': current_target_value * 100.0,
+                                        'Calc T (%)': T_stack_final_calc * 100.0,
+                                        'Calc T Norm (%)': T_norm_final_calc * 100.0,
+                                        'Delta T (%)': (T_stack_final_calc - current_target_value)*100.0 if current_target_type == 'T' else np.full_like(current_target_lambda, np.nan),
+                                        'Delta T Norm (%)': (T_norm_final_calc - current_target_value)*100.0 if current_target_type == 'T_norm' else np.full_like(current_target_lambda, np.nan),
+                                    }
                                 }
-                            }
-                            st.session_state.optim_results = final_results_dict
+                                st.session_state.optim_results = final_results_dict
 
-                            st.session_state.fig_compare_results = plot_spectra_vs_target(
-                                res=final_results_dict['final_spectra'], target=st.session_state.target_data, best_params_info=final_results_dict['best_params'],
-                                model_str_base=final_results_dict['model_str_base'], effective_lambda_min=final_results_dict['best_params']['effective_lambda_min'], effective_lambda_max=final_results_dict['best_params']['effective_lambda_max']
-                            )
-                            st.session_state.fig_nk_results = plot_nk_final(final_results_dict['best_params'], final_results_dict['plot_lambda_array'])
-                            st.rerun()
+                                st.session_state.fig_compare_results = plot_spectra_vs_target(
+                                    res=final_results_dict['final_spectra'], target=st.session_state.target_data, best_params_info=final_results_dict['best_params'],
+                                    model_str_base=final_results_dict['model_str_base'], effective_lambda_min=final_results_dict['best_params']['effective_lambda_min'], effective_lambda_max=final_results_dict['best_params']['effective_lambda_max']
+                                )
+                                st.session_state.fig_nk_results = plot_nk_final(final_results_dict['best_params'], final_results_dict['plot_lambda_array'])
+                                st.rerun()
 
                         except Exception as e_optim: st.error(f"Optimization Error: {e_optim}", icon="🚨"); add_log_message("error", f"ERROR during optimization: {e_optim}"); traceback.print_exc()
 
-        if st.session_state.optim_results:
-            results = st.session_state.optim_results
-            st.divider();
-            st.subheader("Optimization Metrics")
-            col_res1a, col_res2a, col_res3a = st.columns(3)
-            with col_res1a: st.metric("Optimal Thickness", f"{results['best_params']['thickness_nm']:.3f} nm")
-            with col_res2a:
-                mse_disp = results['final_spectra']['MSE_Recalculated'];
-                st.metric("Final MSE (in range)", f"{mse_disp:.4e}" if np.isfinite(mse_disp) else "N/A")
-            with col_res3a:
-                quality_label = results['final_spectra']['quality_label']
-                percent_good_fit = results['final_spectra']['percent_good_fit']
-                if np.isfinite(percent_good_fit): st.metric("Fit Quality Rating", f"{quality_label}", help=f"Based on {percent_good_fit:.1f}% points within optim. range having |Calc - Target| < 0.25%")
-                else: st.metric("Fit Quality Rating", "N/A")
+            if st.session_state.optim_results:
+                results = st.session_state.optim_results
+                st.divider();
+                st.subheader("Optimization Metrics")
+                col_res1a, col_res2a, col_res3a = st.columns(3)
+                with col_res1a: st.metric("Optimal Thickness", f"{results['best_params']['thickness_nm']:.3f} nm")
+                with col_res2a:
+                    mse_disp = results['final_spectra']['MSE_Recalculated'];
+                    st.metric("Final MSE (in range)", f"{mse_disp:.4e}" if np.isfinite(mse_disp) else "N/A")
+                with col_res3a:
+                    quality_label = results['final_spectra']['quality_label']
+                    percent_good_fit = results['final_spectra']['percent_good_fit']
+                    if np.isfinite(percent_good_fit): st.metric("Fit Quality Rating", f"{quality_label}", help=f"Based on {percent_good_fit:.1f}% points within optim. range having |Calc - Target| < 0.25%")
+                    else: st.metric("Fit Quality Rating", "N/A")
 
-            st.subheader("Result Plots")
-            if st.session_state.fig_compare_results: st.pyplot(st.session_state.fig_compare_results)
-            else: st.warning("Comparison plot not available.")
-            if st.session_state.fig_nk_results: st.pyplot(st.session_state.fig_nk_results)
-            else: st.warning("N/K plot not available.")
+                st.subheader("Result Plots")
+                if st.session_state.fig_compare_results: st.pyplot(st.session_state.fig_compare_results)
+                else: st.warning("Comparison plot not available.")
+                if st.session_state.fig_nk_results: st.pyplot(st.session_state.fig_nk_results)
+                else: st.warning("N/K plot not available.")
 
-            st.subheader("Result Data")
-            with st.expander("Show Result Data Table (Full Range)"):
-                if 'result_data_table' in results:
-                    try:
-                        df_display = pd.DataFrame(results['result_data_table'])
-                        st.dataframe(df_display, use_container_width=True)
-                    except Exception as e_df:
-                        st.warning(f"Could not display result table: {e_df}")
-                        add_log_message("error", f"Error displaying DataFrame: {e_df}")
-                else:
-                    st.warning("Result data table not available.")
-        elif run_button and not valid_params:
-             st.warning("Optimization could not run due to parameter errors. Please check configuration and logs.", icon="⚠️")
-        elif not run_button and not st.session_state.optim_results:
-             st.info("Configure settings, load data, and click 'Run Optimization' to see results here.")
+                st.subheader("Result Data")
+                with st.expander("Show Result Data Table (Full Range)"):
+                    if 'result_data_table' in results:
+                        try:
+                            df_display = pd.DataFrame(results['result_data_table'])
+                            st.dataframe(df_display, use_container_width=True)
+                        except Exception as e_df:
+                            st.warning(f"Could not display result table: {e_df}")
+                            add_log_message("error", f"Error displaying DataFrame: {e_df}")
+                    else:
+                        st.warning("Result data table not available.")
+            elif run_button and not valid_params:
+                 st.warning("Optimization could not run due to parameter errors. Please check configuration and logs.", icon="⚠️")
+            elif not run_button and not st.session_state.optim_results:
+                 st.info("Configure settings, load data, and click 'Run Optimization' to see results here.")
+
+        with col_help:
+            st.subheader("Help")
+            with st.expander("Help / Instructions", expanded=True):
+                st.markdown("""
+**User Manual - Optical Monolayer Optimizer (v1.4.5)**
+
+**Goal:**
+This program determines the optical properties (refractive index $n$, extinction coefficient $k$) and thickness ($d$) of a single thin film (monolayer) deposited on a known substrate. It adjusts these parameters so that the calculated transmission spectrum best matches experimental target data provided by the user.
+
+**Workflow using Tabs:**
+
+1.  **Configuration Tab:**
+    * **Substrate Material:** Choose the substrate material from the list. This defines the substrate's refractive index $n_{sub}(\lambda)$ used in calculations and sets a minimum valid wavelength.
+    * **Optimization Lambda Range:** Define the Min/Max wavelength ($\lambda$, in nm) over which the fitting process will occur. This range must be within the range present in your target data file and also above the minimum valid wavelength for the chosen substrate.
+    * **Thickness Range:** Set the minimum and maximum possible physical thickness ($d$, in nm) for the monolayer. The optimizer will search for the optimal thickness within these bounds.
+    * **Plot Substrate Indices:** Click this button to view a plot of the refractive indices for all available substrates based on their Sellmeier equations. Useful for verification.
+    * **Advanced Optimization Settings (Expander):**
+        * *Spline Knots:* Control the flexibility of the $n(\lambda)$ and $k(\lambda)$ curves. More knots allow for more complex shapes but increase computation time and risk of overfitting. Minimum is 2.
+        * *Knot Distribution:* Choose how knots are spaced ('1/λ' is default, '1/λ²' spaces them more densely at shorter wavelengths).
+        * *Differential Evolution:* Fine-tune parameters of the optimization algorithm (population size, max iterations, tolerances, mutation, recombination, strategy). Default values are generally reasonable.
+        * *Parallel Workers:* Set to `1` (default and recommended) to run calculations sequentially and avoid potential multiprocessing errors. Setting > 1 is not recommended here due to potential instability.
+    * **Reset Parameters:** Click to restore all configuration options (basic and advanced) to their default values.
+
+2.  **Target Data Tab:**
+    * **Select Target Type:**
+        * Choose `T Norm (%)`: Target data represents $T_{sample} / T_{substrate}$. The optimization will fit calculated $T_{norm}$ to your target. Requires calculation of bare substrate transmission ($T_{sub}$). Schema shows Sample and Reference paths.
+        * Choose `T Sample (%)`: Target data represents the absolute transmission of the sample ($T_{sample}$). The optimization will fit calculated $T_{sample}$ directly to your target. Schema shows only the Sample path.
+    * **Upload Target File:** Upload a **.csv** file.
+        * **Format:** The file must contain wavelength and target transmission data. It should have a header row (which will be skipped) followed by data rows. **Column 1 must be wavelength (in nm)**, and **Column 2 must be the target transmission value**.
+        * **Values:** Target values can be fractions (0-1) or percentages (0-100). The application automatically detects if values look like percentages (if max value > 5) and divides by 100 internally.
+        * **Delimiter/Decimal:** The application attempts to auto-detect common delimiters (comma, semicolon, tab) and decimal separators (point, comma).
+    * **Default File:** If no file is uploaded and `example.csv` exists in the same directory, it will be loaded by default.
+    * **Loaded Data Display:** Shows the name of the loaded file and a plot of the target data vs wavelength.
+    * **Measurement Schema:** Shows a diagram illustrating the selected `Target Type` (T_norm or T_sample). This schema updates based on the radio button selection.
+
+3.  **Run & Results Tab:**
+    * **Run Optimization Button:** Click this button (enabled only after target data is loaded) to start the fitting process.
+    * **Progress Indicator:** While running, an indicator shows the current iteration number, the best Mean Squared Error (MSE) found so far between calculation and target, and the corresponding best thickness found so far (updated every iteration).
+    * **(This Help Section is here on the right)**
+    * **Results Display (after completion):**
+        * *Metrics:* Shows the final optimized thickness, the final MSE achieved within the specified optimization range, and a qualitative Fit Quality Rating based on the percentage of points with absolute error < 0.25%.
+        * *Result Plots:*
+            * Comparison Plot: Shows your target data (red dots) overlaid with the final calculated spectrum (blue line - this will be $T_{sample}$ or $T_{norm}$ depending on your selected Target Type). It also shows the difference (Delta, Calc - Target) on the right axis (green dotted line), calculated only within the optimization range.
+            * Final n/k Plot: Shows the determined refractive index $n(\lambda)$ (blue solid line, right axis) and extinction coefficient $k(\lambda)$ (red dashed line, left axis) as functions of wavelength. The positions of the spline knots used are marked.
+        * *Result Data Table (Expander):* Provides a table with detailed numerical results for each wavelength point from your original file, including calculated n, k, T_sample (%), T_norm (%), substrate index, target values, and deltas.
+
+**Troubleshooting:**
+
+* **File Loading Errors:** Check CSV format (header row exists?, 2 columns?, numeric data?, standard encoding like UTF-8 or Latin-1?). Check logs below for parsing details.
+* **Slow Optimization:** Calculation time depends heavily on data size, number of knots, and optimization parameters (`maxiter`, `pop_size`). Reduce complexity in Advanced Settings for faster runs if needed.
+* **Optimization "Blocked" / "Stopping...":** Ensure "Parallel Workers" is set to `1` in Advanced Settings. If it persists, it might be a resource issue (RAM/CPU) - try simplifying the problem (fewer knots, smaller lambda range, lower `maxiter`). Check detailed logs in the terminal or Streamlit Cloud interface.
+* **Poor Fit Quality:** May indicate incorrect thickness range, insufficient number of knots for complex spectra, inappropriate lambda range, or noisy target data. Review configuration and data.
+
+Contact: fabien.lemarchand@gmail.com
+                """)
 
     st.divider()
-    col_foot1, col_foot2 = st.columns(2)
-    with col_foot1:
+    col_log_user, col_log_session = st.columns(2)
+    with col_log_user:
         with st.expander("Show User Access Log", expanded=False):
             display_user_log()
+    with col_log_session:
         display_log()
 
-    with col_foot2:
-        with st.expander("Help / Instructions", expanded=False):
-            st.markdown("""
-**User Manual**
-
-**Goal:** Determine optical properties (n, k) and thickness (d) of a monolayer on a known substrate by fitting calculated transmission to experimental target data.
-
-**Tabs:**
-1.  **Configuration:** Set Substrate, Optimization Lambda Range, Thickness Range, and Advanced Parameters. (Workers default to 1).
-2.  **Target Data:** Select Target Type (T_norm/T_sample) and Upload a **.csv** file (λ (nm), Target Value). Schema and Target Plot are shown.
-3.  **Run & Results:** Click "▶ Run Optimization". View Metrics, Result Plots (Comparison, n/k), and the Result Data Table. Progress shows Iteration, Best MSE, and corresponding Thickness.
-
-**Tips:** Check logs (below) for details/errors. Ensure λ range is valid. Set `workers=1` (default) to avoid potential errors on some systems.
-            """)
-
-        user_name = st.session_state.user_name
-        user_email = st.session_state.user_email
-        if user_name and user_email: user_display_name = f"{user_name} ({user_email})"
-        elif user_name: user_display_name = user_name
-        elif user_email: user_display_name = user_email
-        else: user_display_name = "Guest"
-        st.caption(f"Monolayer Optimizer v1.4.5-tabs-opt - Welcome, {user_display_name}!")
+    user_name = st.session_state.user_name
+    user_email = st.session_state.user_email
+    if user_name and user_email: user_display_name = f"{user_name} ({user_email})"
+    elif user_name: user_display_name = user_name
+    elif user_email: user_display_name = user_email
+    else: user_display_name = "Guest"
+    st.caption(f"Monolayer Optimizer v1.4.6-tabs-opt - Welcome, {user_display_name}!")
