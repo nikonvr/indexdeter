@@ -1097,7 +1097,10 @@ else:
                                 st.session_state.fig_nk_results = plot_nk_final(final_results_dict['best_params'], final_results_dict['plot_lambda_array'])
                                 st.rerun()
 
-                        except Exception as e_optim: st.error(f"Optimization Error: {e_optim}", icon="🚨"); add_log_message("error", f"ERROR during optimization: {e_optim}"); traceback.print_exc()
+                            except Exception as e_optim:
+                                st.error(f"Optimization Error: {e_optim}", icon="🚨")
+                                add_log_message("error", f"ERROR during optimization: {e_optim}")
+                                traceback.print_exc()
 
             if st.session_state.optim_results:
                 results = st.session_state.optim_results
@@ -1139,11 +1142,11 @@ else:
         with col_help:
             st.subheader("Help")
             with st.expander("Help / Instructions", expanded=True):
-                st.markdown("""
-**User Manual - Optical Monolayer Optimizer (v1.4.5)**
+                 st.markdown(r"""
+**User Manual - Optical Monolayer Optimizer (v1.4.6)**
 
 **Goal:**
-This program determines the optical properties (refractive index $n$, extinction coefficient $k$) and thickness ($d$) of a single thin film (monolayer) deposited on a known substrate. It adjusts these parameters so that the calculated transmission spectrum best matches experimental target data provided by the user.
+This program determines the optical properties (refractive index $n(\lambda)$, extinction coefficient $k(\lambda)$) and thickness ($d$) of a single thin film (monolayer) deposited on a known substrate. It adjusts these parameters so that the calculated transmission spectrum best matches experimental target data provided by the user.
 
 **Workflow using Tabs:**
 
@@ -1156,7 +1159,7 @@ This program determines the optical properties (refractive index $n$, extinction
         * *Spline Knots:* Control the flexibility of the $n(\lambda)$ and $k(\lambda)$ curves. More knots allow for more complex shapes but increase computation time and risk of overfitting. Minimum is 2.
         * *Knot Distribution:* Choose how knots are spaced ('1/λ' is default, '1/λ²' spaces them more densely at shorter wavelengths).
         * *Differential Evolution:* Fine-tune parameters of the optimization algorithm (population size, max iterations, tolerances, mutation, recombination, strategy). Default values are generally reasonable.
-        * *Parallel Workers:* Set to `1` (default and recommended) to run calculations sequentially and avoid potential multiprocessing errors. Setting > 1 is not recommended here due to potential instability.
+        * *Parallel Workers:* Set to `1` (default and recommended) to run calculations sequentially and avoid potential multiprocessing errors often encountered on some systems or platforms.
     * **Reset Parameters:** Click to restore all configuration options (basic and advanced) to their default values.
 
 2.  **Target Data Tab:**
@@ -1172,13 +1175,13 @@ This program determines the optical properties (refractive index $n$, extinction
     * **Measurement Schema:** Shows a diagram illustrating the selected `Target Type` (T_norm or T_sample). This schema updates based on the radio button selection.
 
 3.  **Run & Results Tab:**
+    * **(This Help Section is here on the right)**
     * **Run Optimization Button:** Click this button (enabled only after target data is loaded) to start the fitting process.
     * **Progress Indicator:** While running, an indicator shows the current iteration number, the best Mean Squared Error (MSE) found so far between calculation and target, and the corresponding best thickness found so far (updated every iteration).
-    * **(This Help Section is here on the right)**
     * **Results Display (after completion):**
         * *Metrics:* Shows the final optimized thickness, the final MSE achieved within the specified optimization range, and a qualitative Fit Quality Rating based on the percentage of points with absolute error < 0.25%.
         * *Result Plots:*
-            * Comparison Plot: Shows your target data (red dots) overlaid with the final calculated spectrum (blue line - this will be $T_{sample}$ or $T_{norm}$ depending on your selected Target Type). It also shows the difference (Delta, Calc - Target) on the right axis (green dotted line), calculated only within the optimization range.
+            * Comparison Plot: Shows your target data (red dots) overlaid with the final calculated spectrum (blue line - this will be $T_{sample}$ or $T_{norm}$ depending on your selected Target Type for the optimization). It also shows the difference (Delta, Calc - Target) on the right axis (green dotted line), calculated only within the optimization range.
             * Final n/k Plot: Shows the determined refractive index $n(\lambda)$ (blue solid line, right axis) and extinction coefficient $k(\lambda)$ (red dashed line, left axis) as functions of wavelength. The positions of the spline knots used are marked.
         * *Result Data Table (Expander):* Provides a table with detailed numerical results for each wavelength point from your original file, including calculated n, k, T_sample (%), T_norm (%), substrate index, target values, and deltas.
 
@@ -1186,11 +1189,11 @@ This program determines the optical properties (refractive index $n$, extinction
 
 * **File Loading Errors:** Check CSV format (header row exists?, 2 columns?, numeric data?, standard encoding like UTF-8 or Latin-1?). Check logs below for parsing details.
 * **Slow Optimization:** Calculation time depends heavily on data size, number of knots, and optimization parameters (`maxiter`, `pop_size`). Reduce complexity in Advanced Settings for faster runs if needed.
-* **Optimization "Blocked" / "Stopping...":** Ensure "Parallel Workers" is set to `1` in Advanced Settings. If it persists, it might be a resource issue (RAM/CPU) - try simplifying the problem (fewer knots, smaller lambda range, lower `maxiter`). Check detailed logs in the terminal or Streamlit Cloud interface.
+* **Optimization "Blocked" / "Stopping...":** Ensure "Parallel Workers" is set to `1` in Advanced Settings (this is now the default). If it persists, it might be a resource issue (RAM/CPU) - try simplifying the problem (fewer knots, smaller lambda range, lower `maxiter`). Check detailed logs in the terminal or Streamlit Cloud interface.
 * **Poor Fit Quality:** May indicate incorrect thickness range, insufficient number of knots for complex spectra, inappropriate lambda range, or noisy target data. Review configuration and data.
 
 Contact: fabien.lemarchand@gmail.com
-                """)
+                 """)
 
     st.divider()
     col_log_user, col_log_session = st.columns(2)
