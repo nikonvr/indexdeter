@@ -1118,7 +1118,16 @@ else:
                                 abs_delta = np.abs(calc_value_for_mse[combined_valid_mask_for_mse] - current_target_value[combined_valid_mask_for_mse]); delta_threshold = 0.0025
                                 points_below_threshold = np.sum(abs_delta < delta_threshold);
                                 percent_good_fit = (points_below_threshold / mse_pts_count) * 100.0
-                                if percent_good_fit >= 90: quality_label = "Excellent"; elif percent_good_fit >= 70: quality_label = "Good"; elif percent_good_fit >= 50: quality_label = "Fair"; else: quality_label = "Poor"
+                                # --- Bloc Corrigé ---
+                                if percent_good_fit >= 90:
+                                    quality_label = "Excellent"
+                                elif percent_good_fit >= 70:
+                                    quality_label = "Good"
+                                elif percent_good_fit >= 50:
+                                    quality_label = "Fair"
+                                else:
+                                    quality_label = "Poor"
+                                # --- Fin Bloc Corrigé ---
                                 add_log_message("info", f"  Final MSE ({current_target_type}, {mse_pts_count} pts in range): {recalc_mse_final:.4e}\n" + "-"*20 + " Fit Quality " + "-"*20 + f"\n  Range [{effective_lambda_min:.1f}-{effective_lambda_max:.1f}] nm, {mse_pts_count} valid pts\n  Points |delta|<{delta_threshold*100:.2f}%: {percent_good_fit:.1f}% ({points_below_threshold}/{mse_pts_count})\n  -> Rating: {quality_label}")
                             else: add_log_message("warning", f"Cannot recalculate Final MSE/Quality for range [{effective_lambda_min:.1f}-{effective_lambda_max:.1f}] nm.")
                             add_log_message("info", "-" * 50)
