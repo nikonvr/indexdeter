@@ -154,11 +154,43 @@ def calculate_monolayer_lambda(l_val, nMono, thickness_nm, nSub_val):
     return Rs_calc, Ts_calc, Rs_prime_calc
 
 @numba.jit(nopython=True, cache=True)
+def calculate_monolayer_R_infinite_sub(l_val, nMono, thickness_nm, nSub_val):
+    if not np.isfinite(nSub_val) or nSub_val < 1e-6: return np.nan
+    n0 = 1.0
+    eta_inc_fwd = np.complex128(n0 + 0j)
+    eta_sub_fwd = np.complex128(nSub_val + 0j)
+    eta1 = nMono
+    phi1 = (2.0 * PI / l_val) * eta1 * thickness_nm
+    cos_phi1 = np.cos(phi1)
+    sin_phi1 = np.sin(phi1)
+    M1 = np.zeros((2, 2), dtype=np.complex128)
+    M1[0, 0] = cos_phi1
+    M1[1, 1] = cos_phi1
+    if abs(eta1) > SMALL_EPSILON:
+        M1[0, 1] = (1j / eta1) * sin_phi1
+    else:
+        M1[0, 1] = np.complex128(0 + 1j*HUGE_PENALTY) if abs(sin_phi1) > SMALL_EPSILON else 0j
+    M1[1, 0] = 1j * eta1 * sin_phi1
+    M_fwd = M1
+    B_fwd = M_fwd[0, 0]
+    C_fwd = M_fwd[0, 1]
+    A_fwd = M_fwd[1, 0]
+    D_fwd = M_fwd[1, 1]
+    denom_a_plus = (eta_inc_fwd * B_fwd + eta_inc_fwd * eta_sub_fwd * C_fwd + A_fwd + eta_sub_fwd * D_fwd)
+    if abs(denom_a_plus) < SMALL_EPSILON:
+        denom_a_plus = np.complex128(SMALL_EPSILON + 0j)
+    ra_plus_amp = (eta_inc_fwd * B_fwd + eta_inc_fwd * eta_sub_fwd * C_fwd - A_fwd - eta_sub_fwd * D_fwd) / denom_a_plus
+    Ra_plus = abs(ra_plus_amp)**2
+    Rs_calc = max(0.0, min(1.0, Ra_plus.real))
+    if not np.isfinite(Rs_calc): Rs_calc = np.nan
+    return Rs_calc
+
+@numba.jit(nopython=True, cache=True)
 def calculate_total_error_numba(l_array, nSub_array, target_value_array,
-                                 weights_array, target_type_flag,
-                                 current_thickness_nm,
-                                 n_calc_array, k_calc_array,
-                                 n_min_bound, n_max_bound, k_min_bound, k_max_bound):
+                                weights_array, target_type_flag,
+                                current_thickness_nm,
+                                n_calc_array, k_calc_array,
+                                n_min_bound, n_max_bound, k_min_bound, k_max_bound):
     total_sq_error = 0.0
     points_calculated = 0
     for i in range(len(l_array)):
@@ -178,24 +210,26 @@ def calculate_total_error_numba(l_array, nSub_array, target_value_array,
 
         nMono_complex_val = n_calc - 1j * k_calc
 
-        _, Ts_stack, _ = calculate_monolayer_lambda(l_val, nMono_complex_val, current_thickness_nm, nSub_val)
-        if not np.isfinite(Ts_stack): continue
-
         calculated_value = np.nan
         if target_type_flag == 0:
+            _, Ts_stack, _ = calculate_monolayer_lambda(l_val, nMono_complex_val, current_thickness_nm, nSub_val)
+            if not np.isfinite(Ts_stack): continue
             _, Ts_sub, _ = calculate_monolayer_lambda(l_val, 1.0 + 0j, 0.0, nSub_val)
             if not np.isfinite(Ts_sub): continue
-
             if Ts_sub > SMALL_EPSILON:
                 T_norm_calc = Ts_stack / Ts_sub
             else:
                 T_norm_calc = 0.0 if abs(Ts_stack) < SMALL_EPSILON else HUGE_PENALTY
-
             if not np.isfinite(T_norm_calc): return HUGE_PENALTY
             calculated_value = max(0.0, min(2.0, T_norm_calc))
-
         elif target_type_flag == 1:
+            _, Ts_stack, _ = calculate_monolayer_lambda(l_val, nMono_complex_val, current_thickness_nm, nSub_val)
+            if not np.isfinite(Ts_stack): continue
             calculated_value = max(0.0, min(1.0, Ts_stack))
+        elif target_type_flag == 2:
+            Rs_stack_infinite = calculate_monolayer_R_infinite_sub(l_val, nMono_complex_val, current_thickness_nm, nSub_val)
+            if not np.isfinite(Rs_stack_infinite): continue
+            calculated_value = max(0.0, min(1.0, Rs_stack_infinite))
         else:
             return HUGE_PENALTY
 
@@ -244,10 +278,10 @@ def objective_func_spline_fixed_knots(p, num_knots_n, num_knots_k, l_array, nSub
         k_max_req = math.exp(LOG_K_KNOT_VALUE_BOUNDS[1])
 
         mse = calculate_total_error_numba(l_array, nSub_array, target_value_array,
-                                           weights_array, target_type_flag,
-                                           current_thickness_nm,
-                                           n_calc_array, k_calc_array,
-                                           n_min_req, n_max_req, k_min_req, k_max_req)
+                                            weights_array, target_type_flag,
+                                            current_thickness_nm,
+                                            n_calc_array, k_calc_array,
+                                            n_min_req, n_max_req, k_min_req, k_max_req)
         return mse
 
     except ValueError:
@@ -296,10 +330,13 @@ def plot_target_only(target_data_to_plot, target_filename_base):
     fig_target, ax_target = plt.subplots(1, 1, figsize=(8, 6));
     plt.style.use('seaborn-v0_8-whitegrid')
     short_filename = target_filename_base if target_filename_base else "Target"
+    
     if target_type == 'T_norm':
         plot_label = 'Target T Norm (%)'; y_label = 'Normalized Transmission (%)'; title_suffix = "T Norm (%)"; y_lim_top = 110
-    else:
+    elif target_type == 'T':
         plot_label = 'Target T (%)'; y_label = 'Transmission (%)'; title_suffix = "T Sample (%)"; y_lim_top = 105
+    else: # Rdépoli
+        plot_label = 'Target R (%)'; y_label = 'Reflectance (%)'; title_suffix = "R Dépoli (%)"; y_lim_top = 105
 
     ax_target.set_title(f"Target Data ({short_filename}) - {title_suffix}")
     ax_target.set_xlabel('λ (nm)');
@@ -348,12 +385,20 @@ def draw_schema_matplotlib(_target_type, _substrate_name):
     ax.add_patch(plt.Rectangle((x_left, y_sub_base), stack_width, sub_h, facecolor=color_Sub, edgecolor=outline_color, linewidth=0.5))
     ax.text(x_left + stack_width/2, y_sub_base + sub_h/2, f"Sub ({_substrate_name})", ha='center', va='center', fontdict=layer_font)
     ax.text(x_left + stack_width/2, y_sub_base + sub_h + mono_h + 3, "Air (n≈1)", ha='center', va='top', fontdict=medium_font)
-    ax.text(x_left + stack_width/2, y_sub_base - 3, "Air", ha='center', va='bottom', fontdict=medium_font)
 
     arrow_x = x_left + stack_width/2; y_arrow_start = 28; y_arrow_end = 2
-    ax.arrow(arrow_x, y_arrow_start, 0, y_arrow_end - y_arrow_start, head_width=3, head_length=2, fc='darkred', ec='darkred', length_includes_head=True, width=0.5)
-    label_text = "T_sample" if _target_type == 'T' else "T_norm"
-    ax.text(arrow_x + 4, y_arrow_end + 5, label_text, ha='left', va='center', color='darkred', style='italic', size=8)
+    y_reflection_plane = y_sub_base + sub_h + mono_h
+
+    if _target_type == 'Rdépoli':
+        ax.arrow(arrow_x - 5, y_arrow_start, 0, y_reflection_plane - y_arrow_start, head_width=3, head_length=2, fc='darkred', ec='darkred', length_includes_head=True, width=0.5)
+        ax.arrow(arrow_x + 5, y_reflection_plane, 0, y_arrow_start - y_reflection_plane, head_width=3, head_length=2, fc='darkred', ec='darkred', length_includes_head=True, width=0.5)
+        ax.text(arrow_x, y_arrow_start, "R_dépoli", ha='center', va='bottom', color='darkred', style='italic', size=8)
+        ax.text(x_left + stack_width/2, y_sub_base - 3, "Substrat (infini)", ha='center', va='bottom', fontdict=medium_font)
+    else:
+        ax.arrow(arrow_x, y_arrow_start, 0, y_arrow_end - y_arrow_start, head_width=3, head_length=2, fc='darkred', ec='darkred', length_includes_head=True, width=0.5)
+        label_text = "T_sample" if _target_type == 'T' else "T_norm"
+        ax.text(arrow_x + 4, y_arrow_end + 5, label_text, ha='left', va='center', color='darkred', style='italic', size=8)
+        ax.text(x_left + stack_width/2, y_sub_base - 3, "Air", ha='center', va='bottom', fontdict=medium_font)
 
     if _target_type == 'T_norm':
         x_right = 100 - 10 - stack_width
@@ -411,11 +456,13 @@ def plot_spectra_vs_target(res, target=None, best_params_info=None, model_str_ba
 
         current_target_type = st.session_state.get('target_type', 'T_norm')
 
-        if current_target_type == 'T_norm':
-             comparison_label = 'Normalized T'; target_label_suffix = 'T Norm (%)'; calc_label_suffix = 'T Norm (%)'; y_label = 'Normalized Transmission (%)'; target_value_key = 'target_value'; calc_value_key = 'T_norm_calc'; y_lim_top = 110
+        if current_target_type == 'T':
+            comparison_label = 'Sample T'; target_label_suffix = 'T (%)'; calc_label_suffix = 'T (%)'; y_label = 'Transmission (%)'; target_value_key = 'target_value'; calc_value_key = 'T_stack_calc'; y_lim_top = 105
+        elif current_target_type == 'Rdépoli':
+            comparison_label = 'R Dépoli'; target_label_suffix = 'R (%)'; calc_label_suffix = 'R (%)'; y_label = 'Reflectance (%)'; target_value_key = 'target_value'; calc_value_key = 'R_depoli_calc'; y_lim_top = 105
         else:
-             comparison_label = 'Sample T'; target_label_suffix = 'T (%)'; calc_label_suffix = 'T (%)'; y_label = 'Transmission (%)'; target_value_key = 'target_value'; calc_value_key = 'T_stack_calc'; y_lim_top = 105
-
+            comparison_label = 'Normalized T'; target_label_suffix = 'T Norm (%)'; calc_label_suffix = 'T Norm (%)'; y_label = 'Normalized Transmission (%)'; target_value_key = 'target_value'; calc_value_key = 'T_norm_calc'; y_lim_top = 110
+        
         num_knots_n = best_params_info.get('num_knots_n', '?'); num_knots_k = best_params_info.get('num_knots_k', '?'); knot_distrib = best_params_info.get('knot_distribution', '?')
         model_str = f"{model_str_base} ({num_knots_n}n/{num_knots_k}k Knots, {knot_distrib})"
 
@@ -595,7 +642,7 @@ def display_user_log():
             st.metric("Total Access Records", len(df_log))
             st.dataframe(df_log.iloc[::-1], use_container_width=True)
         except pd.errors.EmptyDataError:
-             st.info("User log file is empty.")
+                st.info("User log file is empty.")
         except Exception as e:
             st.error(f"Could not read user log file {USER_LOG_FILE}: {e}")
             add_log_message("error", f"Failed to read user log file: {e}")
@@ -687,10 +734,10 @@ else:
                             st.session_state.config_lambda_min = f"{new_config_min:.1f}"
                             add_log_message("info", f"Substrate changed. Default Min λ updated to {st.session_state.config_lambda_min} nm.")
                         else:
-                             add_log_message("warning", f"Substrate changed. New suggested Min λ ({new_config_min:.1f}) >= Max λ ({current_max_str}). Manual adjustment needed.")
+                            add_log_message("warning", f"Substrate changed. New suggested Min λ ({new_config_min:.1f}) >= Max λ ({current_max_str}). Manual adjustment needed.")
                     except ValueError:
-                         st.session_state.config_lambda_min = f"{new_config_min:.1f}"
-                         add_log_message("info", f"Substrate changed. Default Min λ updated to {st.session_state.config_lambda_min} nm.")
+                        st.session_state.config_lambda_min = f"{new_config_min:.1f}"
+                        add_log_message("info", f"Substrate changed. Default Min λ updated to {st.session_state.config_lambda_min} nm.")
                     st.rerun()
 
             st.text("Optimization Lambda Range (nm):")
@@ -723,10 +770,10 @@ else:
                 st.rerun()
 
             if st.session_state.fig_substrate_plot:
-                 st.pyplot(st.session_state.fig_substrate_plot)
-                 if st.button("Clear Substrate Plot", key="clear_sub_plot"):
-                     st.session_state.fig_substrate_plot = None;
-                     st.rerun()
+                st.pyplot(st.session_state.fig_substrate_plot)
+                if st.button("Clear Substrate Plot", key="clear_sub_plot"):
+                    st.session_state.fig_substrate_plot = None;
+                    st.rerun()
 
             st.subheader("Thickness Range")
             subcol_th1, subcol_th2 = st.columns(2)
@@ -765,11 +812,11 @@ else:
             st.session_state.thickness_max = 600.0
             st.session_state.advanced_optim_params = default_advanced_params.copy()
             if st.session_state.target_data is not None:
-                 substrate_min_wl_reset = get_substrate_min_lambda(st.session_state.substrate_choice)
-                 initial_config_min_reset = max(st.session_state.lambda_min_file, substrate_min_wl_reset)
-                 if initial_config_min_reset < st.session_state.lambda_max_file:
-                     st.session_state.config_lambda_min = f"{initial_config_min_reset:.1f}"
-                     st.session_state.config_lambda_max = f"{st.session_state.lambda_max_file:.1f}"
+                substrate_min_wl_reset = get_substrate_min_lambda(st.session_state.substrate_choice)
+                initial_config_min_reset = max(st.session_state.lambda_min_file, substrate_min_wl_reset)
+                if initial_config_min_reset < st.session_state.lambda_max_file:
+                    st.session_state.config_lambda_min = f"{initial_config_min_reset:.1f}"
+                    st.session_state.config_lambda_max = f"{st.session_state.lambda_max_file:.1f}"
             clear_results()
             add_log_message("info", "Configuration parameters reset.")
             st.rerun()
@@ -780,11 +827,12 @@ else:
 
         with col_tgt1:
             st.subheader("Select Type & Load File")
+            target_type_options = ["T_norm", "T", "Rdépoli"]
             st.session_state.target_type = st.radio(
                 "Select Target Type:",
-                options=["T_norm", "T"],
-                format_func=lambda x: "T Norm (%) = T_sample / T_sub" if x == "T_norm" else "T Sample (%)",
-                index=["T_norm", "T"].index(st.session_state.target_type),
+                options=target_type_options,
+                format_func=lambda x: "T Norm (%) = T_sample / T_sub" if x == "T_norm" else ("T Sample (%)" if x == "T" else "R Dépoli (%) (Sub. Infini)"),
+                index=target_type_options.index(st.session_state.target_type),
                 horizontal=True,
                 key="target_type_selector"
             )
@@ -876,11 +924,11 @@ else:
 
                     current_substrate = st.session_state.substrate_choice; substrate_min_wl = get_substrate_min_lambda(current_substrate); initial_config_min = max(st.session_state.lambda_min_file, substrate_min_wl)
                     if initial_config_min >= st.session_state.lambda_max_file:
-                         st.session_state.config_lambda_min = "---"; st.session_state.config_lambda_max = "---"
-                         add_log_message("warning", f"Min allowed λ ({initial_config_min:.1f}) >= Max file λ ({st.session_state.lambda_max_file:.1f}). Cannot set default range.")
+                        st.session_state.config_lambda_min = "---"; st.session_state.config_lambda_max = "---"
+                        add_log_message("warning", f"Min allowed λ ({initial_config_min:.1f}) >= Max file λ ({st.session_state.lambda_max_file:.1f}). Cannot set default range.")
                     else:
-                         st.session_state.config_lambda_min = f"{initial_config_min:.1f}"; st.session_state.config_lambda_max = f"{st.session_state.lambda_max_file:.1f}";
-                         add_log_message("info", f"Default optim range set to: [{st.session_state.config_lambda_min}, {st.session_state.config_lambda_max}] nm")
+                        st.session_state.config_lambda_min = f"{initial_config_min:.1f}"; st.session_state.config_lambda_max = f"{st.session_state.lambda_max_file:.1f}";
+                        add_log_message("info", f"Default optim range set to: [{st.session_state.config_lambda_min}, {st.session_state.config_lambda_max}] nm")
 
                     log_source = "Default file" if is_default_file else "Uploaded file"
                     add_log_message("info", f"{log_source} '{st.session_state.target_filename_base}' loaded ({rows_after_na} valid rows).")
@@ -895,16 +943,16 @@ else:
                     st.rerun()
 
             if st.session_state.target_filename_base:
-                 if st.session_state.target_filename_base == "Error": pass
-                 elif st.session_state.target_data is not None:
-                     file_source_msg = "(Default)" if st.session_state.last_loaded_source == DEFAULT_EXAMPLE_FILE else "(Uploaded)"
-                     st.success(f"Loaded: {st.session_state.target_filename_base} {file_source_msg} (Type: {st.session_state.target_type})", icon="✅")
-                     if st.session_state.fig_target_plot:
-                         st.pyplot(st.session_state.fig_target_plot)
-                     else:
-                         st.warning("Target plot not available.", icon="⚠️")
+                if st.session_state.target_filename_base == "Error": pass
+                elif st.session_state.target_data is not None:
+                    file_source_msg = "(Default)" if st.session_state.last_loaded_source == DEFAULT_EXAMPLE_FILE else "(Uploaded)"
+                    st.success(f"Loaded: {st.session_state.target_filename_base} {file_source_msg} (Type: {st.session_state.target_type})", icon="✅")
+                    if st.session_state.fig_target_plot:
+                        st.pyplot(st.session_state.fig_target_plot)
+                    else:
+                        st.warning("Target plot not available.", icon="⚠️")
             elif st.session_state.last_loaded_source != "DEFAULT_NOT_FOUND":
-                 st.info("Upload a CSV target file or ensure 'example.csv' is present.")
+                st.info("Upload a CSV target file or ensure 'example.csv' is present.")
 
         with col_tgt2:
             st.subheader("Measurement Schema")
@@ -940,7 +988,8 @@ else:
                         if effective_lambda_min >= effective_lambda_max: raise ValueError(f"Adjusted Min λ ({effective_lambda_min:.1f}) >= Max λ ({effective_lambda_max:.1f}).")
                         st.rerun()
                     add_log_message("info", f"Optim range: [{effective_lambda_min:.1f}, {effective_lambda_max:.1f}] nm")
-                    current_target_type = st.session_state.target_type; target_type_flag = 0 if current_target_type == 'T_norm' else 1
+                    current_target_type = st.session_state.target_type
+                    target_type_flag = 0 if current_target_type == 'T_norm' else (1 if current_target_type == 'T' else 2)
                     substrate_id = SUBSTRATE_LIST.index(selected_substrate)
                     adv_params = st.session_state.advanced_optim_params; num_knots_n = adv_params['num_knots_n']; num_knots_k = adv_params['num_knots_k']; use_inv_lambda_sq_distrib = adv_params['use_inv_lambda_sq_distrib']
                     if num_knots_n < 2 or num_knots_k < 2: raise ValueError("Need >= 2 n/k knots.")
@@ -1022,7 +1071,7 @@ else:
                                 idx_start = 1; n_values_opt_final = p_optimal[idx_start : idx_start + num_knots_n]; idx_start += num_knots_n; log_k_values_opt_final = p_optimal[idx_start : idx_start + num_knots_k]
 
                                 n_spline_final = CubicSpline(fixed_n_knot_lambdas, n_values_opt_final, bc_type='natural', extrapolate=True); log_k_spline_final = CubicSpline(fixed_k_knot_lambdas, log_k_values_opt_final, bc_type='natural', extrapolate=True)
-                                n_final_array_recalc = np.full_like(current_target_lambda, np.nan); k_final_array_recalc = np.full_like(current_target_lambda, np.nan); T_stack_final_calc = np.full_like(current_target_lambda, np.nan); T_norm_final_calc = np.full_like(current_target_lambda, np.nan)
+                                n_final_array_recalc = np.full_like(current_target_lambda, np.nan); k_final_array_recalc = np.full_like(current_target_lambda, np.nan); T_stack_final_calc = np.full_like(current_target_lambda, np.nan); T_norm_final_calc = np.full_like(current_target_lambda, np.nan); R_depoli_final_calc = np.full_like(current_target_lambda, np.nan)
                                 valid_lambda_mask_for_calc = (current_target_lambda >= substrate_min_limit) & np.isfinite(current_target_lambda) & (current_target_lambda > 0)
                                 if np.any(valid_lambda_mask_for_calc):
                                     lambda_to_eval = current_target_lambda[valid_lambda_mask_for_calc]
@@ -1037,15 +1086,20 @@ else:
                                     l_val = current_target_lambda[i]; nMono_val = n_final_array_recalc[i] - 1j * k_final_array_recalc[i]; nSub_val = nSub_target_array_full[i]
                                     try:
                                         _, Ts_stack_calc, _ = calculate_monolayer_lambda(l_val, nMono_val, optimal_thickness_nm, nSub_val); _, Ts_sub_calc, _ = calculate_monolayer_lambda(l_val, 1.0 + 0j, 0.0, nSub_val)
+                                        Rs_depoli_calc = calculate_monolayer_R_infinite_sub(l_val, nMono_val, optimal_thickness_nm, nSub_val)
                                         if np.isfinite(Ts_stack_calc): T_stack_final_calc[i] = np.clip(Ts_stack_calc, 0.0, 1.0)
+                                        if np.isfinite(Rs_depoli_calc): R_depoli_final_calc[i] = np.clip(Rs_depoli_calc, 0.0, 1.0)
                                         T_norm_calc = np.nan
                                         if np.isfinite(Ts_sub_calc):
                                             if Ts_sub_calc > SMALL_EPSILON: T_norm_calc = Ts_stack_calc / Ts_sub_calc
                                             elif abs(Ts_stack_calc) < SMALL_EPSILON : T_norm_calc = 0.0
                                         if np.isfinite(T_norm_calc): T_norm_final_calc[i] = np.clip(T_norm_calc, 0.0, 2.0)
                                     except Exception: pass
+                                
+                                if current_target_type == 'T_norm': calc_value_for_mse = T_norm_final_calc
+                                elif current_target_type == 'T': calc_value_for_mse = T_stack_final_calc
+                                else: calc_value_for_mse = R_depoli_final_calc
 
-                                calc_value_for_mse = T_norm_final_calc if current_target_type == 'T_norm' else T_stack_final_calc;
                                 combined_valid_mask_for_mse = mask_used_in_optimization & np.isfinite(calc_value_for_mse)
                                 recalc_mse_final = np.nan; percent_good_fit = np.nan; quality_label = "N/A"; mse_pts_count = np.sum(combined_valid_mask_for_mse)
                                 if mse_pts_count > 0 :
@@ -1055,14 +1109,10 @@ else:
                                     points_below_threshold = np.sum(abs_delta < delta_threshold);
                                     percent_good_fit = (points_below_threshold / mse_pts_count) * 100.0
 
-                                    if percent_good_fit >= 90:
-                                        quality_label = "Excellent"
-                                    elif percent_good_fit >= 70:
-                                        quality_label = "Good"
-                                    elif percent_good_fit >= 50:
-                                        quality_label = "Fair"
-                                    else:
-                                        quality_label = "Poor"
+                                    if percent_good_fit >= 90: quality_label = "Excellent"
+                                    elif percent_good_fit >= 70: quality_label = "Good"
+                                    elif percent_good_fit >= 50: quality_label = "Fair"
+                                    else: quality_label = "Poor"
 
                                     add_log_message("info", f"  Final MSE ({current_target_type}, {mse_pts_count} pts in range): {recalc_mse_final:.4e}\n" + "-"*20 + " Fit Quality " + "-"*20 + f"\n  Range [{effective_lambda_min:.1f}-{effective_lambda_max:.1f}] nm, {mse_pts_count} valid pts\n  Points |delta|<{delta_threshold*100:.2f}%: {percent_good_fit:.1f}% ({points_below_threshold}/{mse_pts_count})\n  -> Rating: {quality_label}")
                                 else:
@@ -1071,7 +1121,7 @@ else:
 
                                 plot_lambda_array_final = np.linspace(st.session_state.lambda_min_file, st.session_state.lambda_max_file, 500)
                                 final_results_dict = {
-                                    'final_spectra': { 'l': current_target_lambda, 'T_stack_calc': T_stack_final_calc, 'T_norm_calc': T_norm_final_calc, 'MSE_Optimized': final_mse_display, 'MSE_Recalculated': recalc_mse_final, 'percent_good_fit': percent_good_fit, 'quality_label': quality_label },
+                                    'final_spectra': { 'l': current_target_lambda, 'T_stack_calc': T_stack_final_calc, 'T_norm_calc': T_norm_final_calc, 'R_depoli_calc': R_depoli_final_calc, 'MSE_Optimized': final_mse_display, 'MSE_Recalculated': recalc_mse_final, 'percent_good_fit': percent_good_fit, 'quality_label': quality_label },
                                     'best_params': { 'thickness_nm': optimal_thickness_nm, 'num_knots_n': num_knots_n, 'num_knots_k': num_knots_k, 'n_knot_values': n_values_opt_final, 'log_k_knot_values': log_k_values_opt_final, 'n_knot_lambdas': fixed_n_knot_lambdas, 'k_knot_lambdas': fixed_k_knot_lambdas, 'knot_distribution': "1/λ²" if use_inv_lambda_sq_distrib else "1/λ", 'substrate_name': selected_substrate, 'effective_lambda_min': effective_lambda_min, 'effective_lambda_max': effective_lambda_max },
                                     'plot_lambda_array': plot_lambda_array_final, 'model_str_base': "Spline Fit",
                                     'result_data_table': {
@@ -1084,8 +1134,10 @@ else:
                                         f'Target {current_target_type} (%) (Full)': current_target_value * 100.0,
                                         'Calc T (%)': T_stack_final_calc * 100.0,
                                         'Calc T Norm (%)': T_norm_final_calc * 100.0,
+                                        'Calc R Dépoli (%)': R_depoli_final_calc * 100.0,
                                         'Delta T (%)': (T_stack_final_calc - current_target_value)*100.0 if current_target_type == 'T' else np.full_like(current_target_lambda, np.nan),
                                         'Delta T Norm (%)': (T_norm_final_calc - current_target_value)*100.0 if current_target_type == 'T_norm' else np.full_like(current_target_lambda, np.nan),
+                                        'Delta R Dépoli (%)': (R_depoli_final_calc - current_target_value)*100.0 if current_target_type == 'Rdépoli' else np.full_like(current_target_lambda, np.nan),
                                     }
                                 }
                                 st.session_state.optim_results = final_results_dict
@@ -1135,14 +1187,14 @@ else:
                     else:
                         st.warning("Result data table not available.")
             elif run_button and not valid_params:
-                 st.warning("Optimization could not run due to parameter errors. Please check configuration and logs.", icon="⚠️")
+                st.warning("Optimization could not run due to parameter errors. Please check configuration and logs.", icon="⚠️")
             elif not run_button and not st.session_state.optim_results:
-                 st.info("Configure settings, load data, and click 'Run Optimization' to see results here.")
+                st.info("Configure settings, load data, and click 'Run Optimization' to see results here.")
 
         with col_help:
             st.subheader("Help")
             with st.expander("Help / Instructions", expanded=True):
-                 st.markdown(r"""
+                st.markdown(r"""
 **User Manual - Optical Monolayer Optimizer (v1.4.6)**
 
 **Goal:**
@@ -1193,7 +1245,7 @@ This program determines the optical properties (refractive index $n(\lambda)$, e
 * **Poor Fit Quality:** May indicate incorrect thickness range, insufficient number of knots for complex spectra, inappropriate lambda range, or noisy target data. Review configuration and data.
 
 Contact: fabien.lemarchand@gmail.com
-                 """)
+                """)
 
     st.divider()
     col_log_user, col_log_session = st.columns(2)
