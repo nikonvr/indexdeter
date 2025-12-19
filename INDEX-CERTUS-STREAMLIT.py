@@ -1796,7 +1796,8 @@ def main():
                     df = pd.read_excel(uploaded_file, header=0)
                 else: 
                     uploaded_file.seek(0)
-                    df = pd.read_csv(uploaded_file, sep=None, engine='python', header=0)
+                    # Ajout de decimal=',' pour gérer les formats européens
+                    df = pd.read_csv(uploaded_file, sep=None, engine='python', header=0, decimal=',')
 
                 n_cols = min(3, len(df.columns))
                 df = df.iloc[:, :n_cols]
