@@ -1791,7 +1791,7 @@ def main():
             type=['csv', 'txt', 'xlsx', 'xls']
         )
 
-        if uploaded_file is not None: 
+        if uploaded_file is not None:  
             try:
                 if uploaded_file.name.lower().endswith(('.xlsx', '.xls')):
                     df = pd.read_excel(uploaded_file, header=0)
@@ -1805,34 +1805,31 @@ def main():
                     if ';' in content:
                         detected_sep = ';'
                     else:
-                        detected_sep = None # Laisser pandas deviner pour les autres cas
+                        detected_sep = None  # Laisser pandas deviner pour les autres cas
 
                     df = pd.read_csv(uploaded_file, sep=detected_sep, engine='python', header=None)
-                    
-                    # Si un point-virgule est présent, on le force comme séparateur
-                    detected_sep = ';' if ';' in first_line else None
-                    
-                    df = pd.read_csv(uploaded_file, sep=detected_sep, engine='python', header=None)
 
-                    # 2. Nettoyage robuste des décimales (remplace , par . et convertit en numérique)
+                    # Nettoyage robuste des décimales (remplace , par . et convertit en numérique)
                     for col in df.columns:
                         if df[col].dtype == 'object':
-                            df[col] = df[col].str.replace(',', '.', regex=False)
+                            df[col] = df[col].str.replace(',', '. ', regex=False)
                     
                     df = df.apply(pd.to_numeric, errors='coerce')
 
-                    # 3. Gestion du header : si la première ligne est devenue NaN après conversion, 
-                    # c'était probablement des titres (Wavelength, etc.), on les supprime.
+                    # Gestion du header :  si la première ligne est devenue NaN après conversion, 
+                    # c'était probablement des titres (Wavelength, etc.), on les supprime. 
                     if df.iloc[0].isna().any():
                         df = df.iloc[1:].reset_index(drop=True)
                     
                     # Suppression des lignes vides restantes
-                    df = df.dropna().reset_index(drop=True)
+                    df = df. dropna().reset_index(drop=True)
 
-                    # 4. Suite du traitement original
-                    n_cols = min(3, len(df.columns))
-                    df = df.iloc[:, :n_cols]
-                    df = df.sort_values(by=df.columns[0]).reset_index(drop=True)
+                # Suite du traitement (commun CSV et Excel)
+                n_cols = min(3, len(df.columns))
+                df = df.iloc[:, :n_cols]
+                df = df.sort_values(by=df.columns[0]).reset_index(drop=True)
+
+                
 
                 data_type, parsed_data = analyze_loaded_data(df)
 
