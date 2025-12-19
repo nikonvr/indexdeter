@@ -797,6 +797,7 @@ def run_coordinate_descent_RT(start_params: np.ndarray, wavelengths: np.ndarray,
 # =============================================================================
 
 def detect_data_type(data: np.ndarray, threshold: float = 0.80) -> str:
+    if len(data) == 0: return 'T'  # Sécurité pour tableau vide
     """Détecte si les données sont T ou R."""
     data_copy = data.copy()
     
@@ -1796,9 +1797,22 @@ def main():
                     df = pd.read_excel(uploaded_file, header=0)
                 else:
                     uploaded_file.seek(0)
-                    # 1. On lit d'abord brute sans header pour ne pas perdre de données
-                    # On ne précise pas decimal ici pour laisser le nettoyage se faire après
-                    df = pd.read_csv(uploaded_file, sep=None, engine='python', header=None)
+                    # LIRE LES PREMIÈRES LIGNES POUR DÉTECTER LE SÉPARATEUR
+                    content = uploaded_file.read(2048).decode('utf-8')
+                    uploaded_file.seek(0)
+                    
+                    # Priorité au point-virgule si présent (format européen classique)
+                    if ';' in content:
+                        detected_sep = ';'
+                    else:
+                        detected_sep = None # Laisser pandas deviner pour les autres cas
+
+                    df = pd.read_csv(uploaded_file, sep=detected_sep, engine='python', header=None)
+                    
+                    # Si un point-virgule est présent, on le force comme séparateur
+                    detected_sep = ';' if ';' in first_line else None
+                    
+                    df = pd.read_csv(uploaded_file, sep=detected_sep, engine='python', header=None)
 
                     # 2. Nettoyage robuste des décimales (remplace , par . et convertit en numérique)
                     for col in df.columns:
@@ -1823,9 +1837,9 @@ def main():
                 data_type, parsed_data = analyze_loaded_data(df)
 
                 # Normalisation automatique (0-1)
-                if parsed_data['T'] is not None and np.nanmax(parsed_data['T']) > 1.5:
+                if parsed_data['T'] is not None and len(parsed_data['T']) > 0 and np.nanmax(parsed_data['T']) > 1.5:
                     parsed_data['T'] = parsed_data['T'] / 100.0
-                if parsed_data['R'] is not None and np.nanmax(parsed_data['R']) > 1.5:
+                if parsed_data['R'] is not None and len(parsed_data['R']) > 0 and np.nanmax(parsed_data['R']) > 1.5:
                     parsed_data['R'] = parsed_data['R'] / 100.0
 
                 target_data = pd.DataFrame({'lambda': parsed_data['lambda']})
