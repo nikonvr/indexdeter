@@ -1795,30 +1795,30 @@ def main():
                 if uploaded_file.name.lower().endswith(('.xlsx', '.xls')):
                     df = pd.read_excel(uploaded_file, header=0)
                 else:
-                uploaded_file.seek(0)
-                # 1. On lit d'abord brute sans header pour ne pas perdre de données
-                # On ne précise pas decimal ici pour laisser le nettoyage se faire après
-                df = pd.read_csv(uploaded_file, sep=None, engine='python', header=None)
+                    uploaded_file.seek(0)
+                    # 1. On lit d'abord brute sans header pour ne pas perdre de données
+                    # On ne précise pas decimal ici pour laisser le nettoyage se faire après
+                    df = pd.read_csv(uploaded_file, sep=None, engine='python', header=None)
 
-                # 2. Nettoyage robuste des décimales (remplace , par . et convertit en numérique)
-                for col in df.columns:
-                    if df[col].dtype == 'object':
-                        df[col] = df[col].str.replace(',', '.', regex=False)
-                
-                df = df.apply(pd.to_numeric, errors='coerce')
+                    # 2. Nettoyage robuste des décimales (remplace , par . et convertit en numérique)
+                    for col in df.columns:
+                        if df[col].dtype == 'object':
+                            df[col] = df[col].str.replace(',', '.', regex=False)
+                    
+                    df = df.apply(pd.to_numeric, errors='coerce')
 
-                # 3. Gestion du header : si la première ligne est devenue NaN après conversion, 
-                # c'était probablement des titres (Wavelength, etc.), on les supprime.
-                if df.iloc[0].isna().any():
-                    df = df.iloc[1:].reset_index(drop=True)
-                
-                # Suppression des lignes vides restantes
-                df = df.dropna().reset_index(drop=True)
+                    # 3. Gestion du header : si la première ligne est devenue NaN après conversion, 
+                    # c'était probablement des titres (Wavelength, etc.), on les supprime.
+                    if df.iloc[0].isna().any():
+                        df = df.iloc[1:].reset_index(drop=True)
+                    
+                    # Suppression des lignes vides restantes
+                    df = df.dropna().reset_index(drop=True)
 
-                # 4. Suite du traitement original
-                n_cols = min(3, len(df.columns))
-                df = df.iloc[:, :n_cols]
-                df = df.sort_values(by=df.columns[0]).reset_index(drop=True)
+                    # 4. Suite du traitement original
+                    n_cols = min(3, len(df.columns))
+                    df = df.iloc[:, :n_cols]
+                    df = df.sort_values(by=df.columns[0]).reset_index(drop=True)
 
                 data_type, parsed_data = analyze_loaded_data(df)
 
